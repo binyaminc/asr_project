@@ -1,56 +1,26 @@
 import string
-
+from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
 import torchaudio
+import torchaudio.functional as F
+import torchaudio.transforms as T
 import librosa
+import matplotlib.pyplot as plt
+import tp as tp
 from jiwer import wer
+import utils
 
 alphabet = list(string.ascii_lowercase + ' ' + '@')  # gives us the a-z, spacebar and @ for epsilon
+train_path = r'an4\\train\\an4\\'
 
 
-# get CTC loss
-def calculate_probability(matrix_path: torch.Tensor, labels: str):
-    """
-    :param matrix_path: A path to a 2D numpy matrix of network outputs (y)
-    :param labels: A string of the labeling you wish to calculate the probability for
-    :use alphabet: A string specifying the possible output tokens
-    :return: The computed probability calculated with CTC
-    """
-
-    probabilities_matrix = matrix_path
-
-    # inserting the empty character, implemented as @
-    labels = '@' + '@'.join([char for char in labels]) + '@'
-    ctc_matrix = np.zeros([len(labels), len(probabilities_matrix)])  # create a matrix of shape [T, K]
-
-    # initialize
-    ctc_matrix[0, 0] = probabilities_matrix[0, 0]  # alpha_1,1 = y^1_e
-    ctc_matrix[1, 0] = probabilities_matrix[0, alphabet.index(labels[1])]  # alpha_2,1 = y^1_z1
-
-    # calculate ctc
-    for i in range(ctc_matrix.shape[0]):
-        char_index = alphabet.index(labels[i])
-        for j in range(1, ctc_matrix.shape[1]):
-            tmp_sum = ctc_matrix[i - 1, j - 1] + ctc_matrix[i, j - 1]
-            if labels[i] == '@' or labels[i] == labels[i - 2]:  # z_s = epsilon or z_s = z_s-2
-                ctc_matrix[i, j] = tmp_sum * probabilities_matrix[j][char_index]
-            else:
-                ctc_matrix[i, j] = (tmp_sum + ctc_matrix[i - 2, j - 1]) * probabilities_matrix[j][char_index]
-
-    return ctc_matrix[-1, -1] + ctc_matrix[-2, -1]
-
-
-def build_probability_matrix():
-    pass
-
-
-class NeuralNetwork(nn.Module):
-    def __init__(self, conv_kernels: list, n_labels: int):
+class CharacterDetectionNet(nn.Module):
+    def __init__(self, classifierArgs):
         super().__init__()
         self.flatten = nn.Flatten()
-        self.conv_kernels = conv_kernels
+        conv_kernels = classifierArgs.kernels_per_layer
         self.conv0 = nn.Conv1d(1, conv_kernels[0], 3, padding=1)
         self.conv1 = nn.Conv1d(conv_kernels[1 - 1], conv_kernels[1], 3, padding=1)
         self.conv2 = nn.Conv1d(conv_kernels[2 - 1], conv_kernels[2], 3, padding=1)
@@ -60,7 +30,7 @@ class NeuralNetwork(nn.Module):
         self.conv6 = nn.Conv1d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
         self.relu = nn.ReLU()
         self.maxpooling = nn.MaxPool1d(3)
-        self.linear = nn.Linear(64 * conv_kernels[-1], n_labels)
+        self.linear = nn.Linear(64 * conv_kernels[-1], len(alphabet))
 
         # a more pythonic way to go about this:
         # self.convs = [nn.Conv1d(1, conv_kernels[0], 3, padding=1)] + \
@@ -68,21 +38,88 @@ class NeuralNetwork(nn.Module):
         #               range(1, len(conv_kernels))]
 
     def forward(self, x):
-        x = self.flatten(x)
-        x = self.relu(self.conv0(x))  # 1024
-        x = self.relu(self.conv1(x))  # 1024
-        x = self.maxpooling(self.relu(self.conv2(x)))  # 512
-        x = self.maxpooling(self.relu(self.conv3(x)))  # 256
-        x = self.maxpooling(self.relu(self.conv4(x)))  # 128
-        x = self.maxpooling(self.relu(self.conv5(x)))  # 64
-        x = self.relu(self.conv6(self.flatten(x)))  # 64 x conv_kernels[6 - 1]
+        x = self.relu(self.conv0(x))
+        x = self.relu(self.conv1(x))
+        x = self.maxpooling(self.relu(self.conv2(x)))
+        x = self.maxpooling(self.relu(self.conv3(x)))
+        x = self.maxpooling(self.relu(self.conv4(x)))
+        x = self.maxpooling(self.relu(self.conv5(x)))
+        x = self.relu(self.conv6(self.flatten(x)))
         x = nn.Softmax(self.linear(x), dim=1)
 
         return x
 
-# build NW - so i was thinking to extract "mfcc features" and to train on those features.
+
+@dataclass
+class ClassifierArgs:
+    """
+    This dataclass defines a training configuration.
+    feel free to add/change it as you see fit, do NOT remove the following fields as we will use
+    them in test time.
+    If you add additional values to your training configuration please add them in here with
+    default values (so run won't break when we test this).
+    """
+    # we will use this to give an absolute path to the data, make sure you read the data using this argument.
+    # you may assume the train data is the same
+    path_to_training_data_dir: str = "./an4/train/an4/"
+
+    # you may add other args here
+    path_to_test_data_dir: str = './an4/test/an4/'
+
+    kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
+
+
+class AsrModel:
+
+    def __init__(self, args: ClassifierArgs, net: CharacterDetectionNet):
+        self.charater_detector = net
+        pass
+
+    def general_classification(self, audio_files: tp.Union[tp.List[str], torch.Tensor], method: str) -> tp.List[
+        int]:
+        """
+        function to classify a given audio using method distance
+        audio_files: list of audio file paths or a batch of audio files of shape [Batch, Channels, Time]
+        method: the method to calculate distance
+        return: list of predicted results for each entry in the batch
+        """
+        if isinstance(audio_files, list) or isinstance(audio_files, str):
+            audio_files = utils.load_wav_files(audio_files)
+        elif isinstance(audio_files, torch.Tensor):
+            # Average over channels
+            audio_files = audio_files.mean(dim=1)
+        audio_mfcc = utils.extract_mfcc(audio_files)
+
+        predicted_labels = []
+        for audio in audio_mfcc:
+            predicted_labels.append(self.predict(audio))
+
+        return predicted_labels
+
+    @abstract
+    def predict(self, wav):
+        pass
+
+
+Class
+
 
 # train NW
+def train(nn):
+    pass
 
+
+if __name__ == '__main__':
+    pass
+    # utils.extract_mfccs()
 
 print("Hellow Neriya!")
+
+"""
+load mp3
+extract mel spec
+write NN
+build training function
+    plot function, to plot the test acc (overfiting problem)
+
+"""
