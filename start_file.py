@@ -6,6 +6,7 @@ import torch.nn as nn
 import torchaudio
 import torchaudio.functional as F
 import torchaudio.transforms as T
+from torch import optim
 import librosa
 import matplotlib.pyplot as plt
 import tp as tp
@@ -48,6 +49,38 @@ class CharacterDetectionNet(nn.Module):
         x = nn.Softmax(self.linear(x), dim=1)
 
         return x
+
+
+def main():
+    # define the network
+    net = CharacterDetectionNet()
+
+    # Define the CTC loss
+    ctc_loss = nn.CTCLoss()
+
+    # Set up the training loop
+    optimizer = optim.Adam(net.parameters(), lr=0.001)
+    epochs = 10
+
+    for epoch in range(epochs):
+        # Iterate through the training data
+        for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:
+            optimizer.zero_grad()
+
+            # Forward pass
+            output = net(spectrogram)
+
+            # TODO: use our ctc loss 
+            loss = ctc_loss(output, target_text, output_lengths, target_lengths)
+
+            # Backward pass and optimization
+            loss.backward()
+            optimizer.step()
+
+            # Print the loss for monitoring
+            print(f"Epoch [{epoch + 1}/{epochs}], Batch loss: {loss.item()}")
+
+    # TODO: use test to check the network performance with (wer?)
 
 
 @dataclass
@@ -110,7 +143,7 @@ def train(nn):
 
 
 if __name__ == '__main__':
-    pass
+    main()
     # utils.extract_mfccs()
 
 print("Hellow Neriya!")
