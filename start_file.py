@@ -26,15 +26,15 @@ class CharacterDetectionNet(nn.Module):
         self.flatten = nn.Flatten()
         conv_kernels = classifierArgs.kernels_per_layer
         self.conv0 = nn.Conv2d(1, conv_kernels[0], 3, padding=1)
-        self.conv1 = nn.Conv2d(conv_kernels[1 - 1], conv_kernels[1], 3)
-        self.conv2 = nn.Conv2d(conv_kernels[2 - 1], conv_kernels[2], 3)
-        self.conv3 = nn.Conv2d(conv_kernels[3 - 1], conv_kernels[3], 3)
-        self.conv4 = nn.Conv2d(conv_kernels[4 - 1], conv_kernels[4], 3)
-        self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3)
-        self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3)
+        self.conv1 = nn.Conv2d(conv_kernels[1 - 1], conv_kernels[1], 3, padding=1)
+        self.conv2 = nn.Conv2d(conv_kernels[2 - 1], conv_kernels[2], 3, padding=1)
+        self.conv3 = nn.Conv2d(conv_kernels[3 - 1], conv_kernels[3], 3, padding=1)
+        self.conv4 = nn.Conv2d(conv_kernels[4 - 1], conv_kernels[4], 3, padding=1)
+        self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3, padding=1)
+        self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
         self.relu = nn.ReLU()
-        self.maxpooling = nn.MaxPool1d(3)
-        self.linear = nn.Linear(64 * conv_kernels[-1], len(alphabet))
+        self.maxpooling = nn.MaxPool2d(2)  # TODO: 3?
+        self.linear = nn.Linear(4*8 * conv_kernels[-1], len(alphabet))
 
         # a more pythonic way to go about this:
         # self.convs = [nn.Conv1d(1, conv_kernels[0], 3, padding=1)] + \
@@ -42,14 +42,27 @@ class CharacterDetectionNet(nn.Module):
         #               range(1, len(conv_kernels))]
 
     def forward(self, x):
+        print(x.shape)
         x = self.relu(self.conv0(x))
+        print(x.shape)
         x = self.relu(self.conv1(x))
+        print(x.shape)
         x = self.maxpooling(self.relu(self.conv2(x)))
+        print(x.shape)
         x = self.maxpooling(self.relu(self.conv3(x)))
+        print(x.shape)
         x = self.maxpooling(self.relu(self.conv4(x)))
+        print(x.shape)
         x = self.maxpooling(self.relu(self.conv5(x)))
-        x = self.relu(self.conv6(self.flatten(x)))
-        x = nn.Softmax(self.linear(x), dim=1)
+        print(x.shape)
+        x = self.maxpooling(self.relu(self.conv6(x)))
+        print(x.shape)
+        x = self.flatten(x)
+        print(x.shape)
+        x = self.linear(x)
+        
+        x = nn.Softmax(x, dim=1)
+        print(x.shape)
 
         return x
 
@@ -124,10 +137,13 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     for specs, labels in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
+        # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels. 
+        specs = torch.unsqueeze(specs, 1)
+        print(specs.shape)
+
         # Forward pass
         output = net(specs)
 
-        # TODO: use our ctc loss?
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
         labels_length = torch.tensor([len(s) for s in labels])
         loss = loss_function(output, labels, labels_length, labels.shape[1])
