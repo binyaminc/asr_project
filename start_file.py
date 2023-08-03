@@ -53,7 +53,7 @@ class CharacterDetectionNet(nn.Module):
 
 def main():
     # define the network
-    net = CharacterDetectionNet()
+    net = CharacterDetectionNet(ClassifierArgs())
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
@@ -70,7 +70,7 @@ def main():
             # Forward pass
             output = net(spectrogram)
 
-            # TODO: use our ctc loss 
+            # TODO: use our ctc loss?
             loss = ctc_loss(output, target_text, output_lengths, target_lengths)
 
             # Backward pass and optimization
@@ -80,7 +80,7 @@ def main():
             # Print the loss for monitoring
             print(f"Epoch [{epoch + 1}/{epochs}], Batch loss: {loss.item()}")
 
-    # TODO: use test to check the network performance with (wer?)
+    # TODO: use test to check the network performance with wer
 
 
 @dataclass
