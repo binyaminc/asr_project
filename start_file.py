@@ -7,11 +7,13 @@ import torchaudio
 import torchaudio.functional as F
 import torchaudio.transforms as T
 from torch import optim
+from torch.utils.data import DataLoader, Dataset
 import librosa
 import matplotlib.pyplot as plt
 import tp as tp
 from jiwer import wer
 import utils
+import os
 
 alphabet = list(string.ascii_lowercase + ' ' + '@')  # gives us the a-z, spacebar and @ for epsilon
 train_path = r'an4\\train\\an4\\'
@@ -51,12 +53,41 @@ class CharacterDetectionNet(nn.Module):
         return x
 
 
+class CustomASRDataset(Dataset):
+    def __init__(self, audio_dir, label_dir):
+        self.audio_dir = audio_dir
+        audio_data = utils.load_wav_files(audio_dir)
+        self.specs = utils.extract_mfcc(audio_data) 
+
+        self.label_dir = label_dir
+        self.file_list = os.listdir(audio_dir)
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, idx):
+        # Load the corresponding label (assuming the label file has the same name as the audio file)
+        audio_filename = self.file_list[idx]
+        label_filename = os.path.splitext(audio_filename)[0] + ".txt"
+        label_path = os.path.join(self.label_dir, label_filename)
+
+        with open(label_path, 'r') as label_file:
+            label = label_file.read().strip()
+
+        # find the spectrogram 
+        spectrogram = self.specs[idx]
+
+        return spectrogram, label
+
+
 def main():
     # define the network
     net = CharacterDetectionNet()
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
+
+    training_data_loader = CustomASRDataset(train_path + '\\wav', train_path + '\\txt')
 
     # Set up the training loop
     optimizer = optim.Adam(net.parameters(), lr=0.001)
