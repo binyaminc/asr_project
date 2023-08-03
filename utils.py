@@ -62,7 +62,7 @@ def load_wav_files(paths):
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
     """
-    spectogram_tensor = []
+    spectogram_list = []
 
     if isinstance(paths, str):
         # If a single directory path is provided
@@ -77,12 +77,21 @@ def load_wav_files(paths):
     else:
         raise ValueError("Invalid paths argument:", paths)
 
+    max_len = 0
     for file_path in file_list:
         audio, sr = librosa.load(file_path, mono=True)
         spec = librosa.feature.melspectrogram(y=audio, sr=sr)
-        spectogram_tensor.append(spec)
+        spectogram_list.append(spec)
+        if max_len < spec.shape[1]:
+            max_len = spec.shape[1]
 
-    return spectogram_tensor
+    for (i, spec) in enumerate(spectogram_list):
+        if spec.shape[1] < max_len:
+            pad_len = max_len - spec.shape[1]
+            spectogram_list[i] = np.pad(spec, ((0, 0), (0, pad_len)), mode='constant')
+
+    spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
+    return spectrogram_tensor
 
 
 def get_file_in_dir(path):

@@ -60,7 +60,8 @@ class CustomASRDataset(Dataset):
         audio_data = utils.load_wav_files(audio_dir)
 
         # in case of working with the spectrogram, split the spectrogram
-        self.specs = torch.split(audio_data, split_size_or_sections=1470, dim=1)
+        self.specs = torch.Tensor(audio_data)
+
         # in case of working with mfcc features
         # audio_data = utils.load_wav_files(audio_dir)
 
@@ -119,11 +120,12 @@ def main():
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     # Iterate through the training data
     # data=batch,, label
-    for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
+    #spectrogram, target_text, spectrogram_lengths, target_lengths
+    for specs, labels in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
         # Forward pass
-        output = net(spectrogram)
+        output = net(specs)
 
         # TODO: use our ctc loss?
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
