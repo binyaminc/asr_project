@@ -7,6 +7,8 @@ import torch
 from typing import List
 import os
 
+from torch.utils.data import Dataset
+
 
 def extract_mfcc(audio_data: torch.Tensor) -> torch.Tensor:
     """
@@ -60,7 +62,7 @@ def load_wav_files(paths):
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
     """
-    audio_tensors = []
+    spectogram_tensor = []
 
     if isinstance(paths, str):
         # If a single directory path is provided
@@ -76,13 +78,11 @@ def load_wav_files(paths):
         raise ValueError("Invalid paths argument:", paths)
 
     for file_path in file_list:
-        audio, _ = librosa.load(file_path, mono=True)
-        audio_tensor = torch.tensor(audio)
-        audio_tensors.append(audio_tensor)
+        audio, sr = librosa.load(file_path, mono=True)
+        spec = librosa.feature.melspectrogram(y=audio, sr=sr)
+        spectogram_tensor.append(spec)
 
-    stacked_tensor = torch.stack(audio_tensors)
-
-    return stacked_tensor
+    return spectogram_tensor
 
 
 def get_file_in_dir(path):
