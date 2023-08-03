@@ -62,25 +62,42 @@ def main():
     optimizer = optim.Adam(net.parameters(), lr=0.001)
     epochs = 10
 
-    for epoch in range(epochs):
-        # Iterate through the training data
-        for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:
-            optimizer.zero_grad()
+    train_loss, test_loss = [], []
 
-            # Forward pass
-            output = net(spectrogram)
+    early_stopper = EarlyStopper(patience=3, min_delta=10)
+    for epoch in np.arange(epochs):
+        train_loss = train_one_epoch(net, train_loader)
+        validation_loss = validate_one_epoch(net, validation_loader)
+        if early_stopper.early_stop(validation_loss):
+            break
 
-            # TODO: use our ctc loss?
-            loss = ctc_loss(output, target_text, output_lengths, target_lengths)
-
-            # Backward pass and optimization
-            loss.backward()
-            optimizer.step()
-
-            # Print the loss for monitoring
-            print(f"Epoch [{epoch + 1}/{epochs}], Batch loss: {loss.item()}")
+        train_one_epoch(ctc_loss, net, optimizer)
 
     # TODO: use test to check the network performance with wer
+
+
+def train_one_epoch(ctc_loss, net, optimizer):
+    # Iterate through the training data
+    for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:
+        optimizer.zero_grad()
+
+        # Forward pass
+        output = net(spectrogram)
+
+        # TODO: use our ctc loss?
+        loss = ctc_loss(output, target_text, output_lengths, target_lengths)
+
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+
+        return loss.item()
+
+
+def validate_one_epoch(net, validation_loader):
+    with torch.no_grad():
+        for i in validation_loader:
+
 
 
 @dataclass
@@ -129,17 +146,27 @@ class AsrModel:
 
         return predicted_labels
 
-    @abstract
+    # @abstract
     def predict(self, wav):
         pass
 
 
-Class
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
 
-
-# train NW
-def train(nn):
-    pass
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
 
 
 if __name__ == '__main__':
