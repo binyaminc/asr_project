@@ -25,13 +25,13 @@ class CharacterDetectionNet(nn.Module):
         super().__init__()
         self.flatten = nn.Flatten()
         conv_kernels = classifierArgs.kernels_per_layer
-        self.conv0 = nn.Conv1d(1, conv_kernels[0], 3, padding=1)
-        self.conv1 = nn.Conv1d(conv_kernels[1 - 1], conv_kernels[1], 3, padding=1)
-        self.conv2 = nn.Conv1d(conv_kernels[2 - 1], conv_kernels[2], 3, padding=1)
-        self.conv3 = nn.Conv1d(conv_kernels[3 - 1], conv_kernels[3], 3, padding=1)
-        self.conv4 = nn.Conv1d(conv_kernels[4 - 1], conv_kernels[4], 3, padding=1)
-        self.conv5 = nn.Conv1d(conv_kernels[5 - 1], conv_kernels[5], 3, padding=1)
-        self.conv6 = nn.Conv1d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
+        self.conv0 = nn.Conv2d(1, conv_kernels[0], 3, padding=1)
+        self.conv1 = nn.Conv2d(conv_kernels[1 - 1], conv_kernels[1], 3)
+        self.conv2 = nn.Conv2d(conv_kernels[2 - 1], conv_kernels[2], 3)
+        self.conv3 = nn.Conv2d(conv_kernels[3 - 1], conv_kernels[3], 3)
+        self.conv4 = nn.Conv2d(conv_kernels[4 - 1], conv_kernels[4], 3)
+        self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3)
+        self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3)
         self.relu = nn.ReLU()
         self.maxpooling = nn.MaxPool1d(3)
         self.linear = nn.Linear(64 * conv_kernels[-1], len(alphabet))
@@ -129,7 +129,8 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
 
         # TODO: use our ctc loss?
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        loss = loss_function(output, target_text, target_lengths, target_lengths)
+        labels_length = torch.tensor([len(s) for s in labels])
+        loss = loss_function(output, labels, labels_length, labels.shape[1])
 
         # Backward pass and optimization
         loss.backward()
