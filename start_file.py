@@ -4,13 +4,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchaudio
-import torchaudio.functional as F
-import torchaudio.transforms as T
+import torchvision
+from torchvision import transforms
+
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
 import librosa
 import matplotlib.pyplot as plt
-import tp as tp
+# import tp
 from jiwer import wer
 import utils
 import os
@@ -57,7 +58,11 @@ class CustomASRDataset(Dataset):
     def __init__(self, audio_dir, label_dir):
         self.audio_dir = audio_dir
         audio_data = utils.load_wav_files(audio_dir)
-        self.specs = utils.extract_mfcc(audio_data) 
+
+        # in case of working with the spectrogram, split the spectrogram
+        self.specs = torch.split(audio_data, split_size_or_sections=1470, dim=1)
+        # in case of working with mfcc features
+        # audio_data = utils.load_wav_files(audio_dir)
 
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
@@ -87,36 +92,42 @@ def main():
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_data_loader = CustomASRDataset(train_path + '\\wav', train_path + '\\txt')
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt')
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt')
+    validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
     optimizer = optim.Adam(net.parameters(), lr=0.001)
-    epochs = 10
+    epochs = 30
 
-    train_loss, test_loss = [], []
+    train_loss, validation_loss = [], []
 
     early_stopper = EarlyStopper(patience=3, min_delta=10)
     for epoch in np.arange(epochs):
-        train_loss = train_one_epoch(net, train_loader)
-        validation_loss = validate_one_epoch(net, validation_loader)
+        train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
+        validation_loss.append(dataloader_score(net, validation_loader))
         if early_stopper.early_stop(validation_loss):
             break
 
-        train_one_epoch(ctc_loss, net, optimizer)
-
+    # TODO: plt losses
+    # TODO:
     # TODO: use test to check the network performance with wer
 
 
-def train_one_epoch(ctc_loss, net, optimizer):
+def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     # Iterate through the training data
-    for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:
+    # data=batch,, label
+    for spectrogram, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
         # Forward pass
         output = net(spectrogram)
 
         # TODO: use our ctc loss?
-        loss = ctc_loss(output, target_text, output_lengths, target_lengths)
+        # loss = loss_function(output, target_text, output_lengths, target_lengths)
+        loss = loss_function(output, target_text, target_lengths, target_lengths)
 
         # Backward pass and optimization
         loss.backward()
@@ -125,10 +136,14 @@ def train_one_epoch(ctc_loss, net, optimizer):
         return loss.item()
 
 
-def validate_one_epoch(net, validation_loader):
+def dataloader_score(net, data_loader):
+    i = 0
+    loss = 0
     with torch.no_grad():
-        for i in validation_loader:
-
+        for item, label in data_loader:
+            loss = nn.CTCLoss(net(item), label)
+            i += 1
+    return loss / i
 
 
 @dataclass
@@ -142,12 +157,12 @@ class ClassifierArgs:
     """
     # we will use this to give an absolute path to the data, make sure you read the data using this argument.
     # you may assume the train data is the same
-    path_to_training_data_dir: str = "./an4/train/an4/"
-
-    # you may add other args here
-    path_to_test_data_dir: str = './an4/test/an4/'
+    training_path: str = "./an4/train/an4/"
+    val_path: str = "./an4/val/an4/"
+    path_to_test_data_dir: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
+    batch_size = 32
 
 
 class AsrModel:
@@ -156,8 +171,7 @@ class AsrModel:
         self.charater_detector = net
         pass
 
-    def general_classification(self, audio_files: tp.Union[tp.List[str], torch.Tensor], method: str) -> tp.List[
-        int]:
+    def general_classification(self, audio_files, method: str):
         """
         function to classify a given audio using method distance
         audio_files: list of audio file paths or a batch of audio files of shape [Batch, Channels, Time]
