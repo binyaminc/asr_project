@@ -11,12 +11,14 @@ from torch.utils.data import Dataset
 import string
 
 
-def create_index(additional_letters: str):
-    alphabet = '<BLANK>' + ' ' + '<@>' + string.ascii_lowercase() + additional_letters
+def create_index(additional_letters: list):
+    alphabet = ['<BLANK>', ' '] + list(string.ascii_lowercase) + additional_letters
     index_letter_pairing = dict()
+    letter_index_pairing = dict()
     for i, l in enumerate(alphabet):
         index_letter_pairing[i] = l
-    return index_letter_pairing
+        letter_index_pairing[l] = i
+    return index_letter_pairing, letter_index_pairing
 
 
 def extract_mfcc(audio_data: torch.Tensor) -> torch.Tensor:

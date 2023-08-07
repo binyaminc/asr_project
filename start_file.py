@@ -10,7 +10,7 @@ import utils
 import os
 from nets import *
 
-index = utils.create_index('')
+index2char, char2index = utils.create_index([''])
 train_path = r'an4\\train\\an4\\'
 
 
@@ -29,7 +29,7 @@ class CharacterDetectionNet(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 1))
-        self.linear = nn.Linear(1024, len(index))
+        self.linear = nn.Linear(1024, len(index2char))
 
         # a more pythonic way to go about this:
         # self.convs = [nn.Conv1d(1, conv_kernels[0], 3, padding=1)] + \
@@ -62,8 +62,8 @@ class CharacterDetectionNet(nn.Module):
         return x
 
 
-def hash_label(label):
-
+def hash_label(label: str):
+    return [char2index[c] for c in label.lower()]
 
 
 class CustomASRDataset(Dataset):
@@ -85,14 +85,12 @@ class CustomASRDataset(Dataset):
 
         with open(label_path, 'r') as label_file:
             label = label_file.read().strip()
-        # label needs to be mapped to numbers
-        numeric_label = hash_label(label)
 
         # Spectrogram is splitted to 128 values per time steps. time step decided by max length at __init__,load_wav_...
         spectrogram = self.audio_data[idx]
 
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
-        return spectrogram, label, self.input_length[idx], len(label)
+        return spectrogram, hash_label(label), self.input_length[idx], len(label)
 
 
 def custom_collate_fn(batch):
@@ -246,7 +244,9 @@ class EarlyStopper:
 
 
 if __name__ == '__main__':
+    print(hash_label('he r LO'))
     main()
+
     # utils.extract_mfccs()
 
 print("Hellow Neriya!")
