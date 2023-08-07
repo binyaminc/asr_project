@@ -10,7 +10,7 @@ import utils
 import os
 from nets import *
 
-alphabet = list(string.ascii_lowercase + ' ' + '@')  # gives us the a-z, spacebar and @ for epsilon
+index = utils.create_index('')
 train_path = r'an4\\train\\an4\\'
 
 
@@ -29,7 +29,7 @@ class CharacterDetectionNet(nn.Module):
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 1))
-        self.linear = nn.Linear(1024, len(alphabet))
+        self.linear = nn.Linear(1024, len(index))
 
         # a more pythonic way to go about this:
         # self.convs = [nn.Conv1d(1, conv_kernels[0], 3, padding=1)] + \
@@ -62,6 +62,10 @@ class CharacterDetectionNet(nn.Module):
         return x
 
 
+def hash_label(label):
+
+
+
 class CustomASRDataset(Dataset):
     def __init__(self, audio_dir, label_dir, frame_length):
         self.audio_dir = audio_dir
@@ -81,13 +85,14 @@ class CustomASRDataset(Dataset):
 
         with open(label_path, 'r') as label_file:
             label = label_file.read().strip()
+        # label needs to be mapped to numbers
+        numeric_label = hash_label(label)
 
-        # Split the spectrogram into frames of length 'frame_length'
+        # Spectrogram is splitted to 128 values per time steps. time step decided by max length at __init__,load_wav_...
         spectrogram = self.audio_data[idx]
-        num_frames = spectrogram.shape[1] // self.frame_length
-        spectrogram_frames = torch.split(spectrogram[:, :num_frames * self.frame_length], self.frame_length, dim=1)
 
-        return spectrogram_frames, label, self.input_length[idx], len(spectrogram_frames)
+        # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
+        return spectrogram, label, self.input_length[idx], len(label)
 
 
 def custom_collate_fn(batch):
