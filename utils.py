@@ -8,6 +8,15 @@ from typing import List
 import os
 
 from torch.utils.data import Dataset
+import string
+
+
+def create_index(additional_letters: str):
+    alphabet = '<BLANK>' + ' ' + '<@>' + string.ascii_lowercase() + additional_letters
+    index_letter_pairing = dict()
+    for i, l in enumerate(alphabet):
+        index_letter_pairing[i] = l
+    return index_letter_pairing
 
 
 def extract_mfcc(audio_data: torch.Tensor) -> torch.Tensor:
@@ -78,20 +87,23 @@ def load_wav_files(paths):
         raise ValueError("Invalid paths argument:", paths)
 
     max_len = 0
+    input_len_list = []
     for file_path in file_list:
-        audio, sr = librosa.load(file_path, mono=True)
-        spec = librosa.feature.melspectrogram(y=audio, sr=sr)
+        waveform, sr = librosa.load(file_path, mono=True)
+        spec = librosa.feature.melspectrogram(y=waveform, sr=sr).T  # extract (128,T) convert to (T,128)
         spectogram_list.append(spec)
-        if max_len < spec.shape[1]:
-            max_len = spec.shape[1]
+        input_len_list.append(spec.shape[0])
+        if max_len < spec.shape[0]:
+            max_len = spec.shape[0]
 
     for (i, spec) in enumerate(spectogram_list):
-        if spec.shape[1] < max_len:
-            pad_len = max_len - spec.shape[1]
-            spectogram_list[i] = np.pad(spec, ((0, 0), (0, pad_len)), mode='constant')
+        if spec.shape[0] < max_len:
+            pad_len = max_len - spec.shape[0]
+            spectogram_list[i] = np.pad(spec, ((0, pad_len), (0, 0)), mode='constant')
 
     spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
-    return spectrogram_tensor
+    input_len_tensor = torch.stack([torch.from_numpy(input_len) for input_len in input_len_list])
+    return spectrogram_tensor, input_len_tensor
 
 
 def get_file_in_dir(path):
@@ -105,3 +117,21 @@ def get_file_in_dir(path):
         file_names.append(os.path.join(path, file_name))
 
     return file_names
+
+
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
