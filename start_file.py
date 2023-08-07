@@ -90,6 +90,7 @@ class CustomASRDataset(Dataset):
         spectrogram = self.audio_data[idx]
 
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
+        # todo fix length of labels to be the same across all the dataset + keep the forth element true to its meaning
         return spectrogram, hash_label(label), self.input_length[idx], len(label)
 
 
