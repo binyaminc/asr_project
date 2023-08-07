@@ -102,7 +102,7 @@ def load_wav_files(paths):
             spectogram_list[i] = np.pad(spec, ((0, pad_len), (0, 0)), mode='constant')
 
     spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
-    input_len_tensor = torch.stack([torch.from_numpy(input_len) for input_len in input_len_list])
+    input_len_tensor = torch.tensor(data=input_len_list)
     return spectrogram_tensor, input_len_tensor
 
 
