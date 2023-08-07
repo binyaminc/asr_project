@@ -3,18 +3,12 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
-import torchaudio
-import torchvision
-from torchvision import transforms
-
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-import librosa
-import matplotlib.pyplot as plt
-# import tp
 from jiwer import wer
 import utils
 import os
+from nets import *
 
 alphabet = list(string.ascii_lowercase + ' ' + '@')  # gives us the a-z, spacebar and @ for epsilon
 train_path = r'an4\\train\\an4\\'
@@ -69,24 +63,18 @@ class CharacterDetectionNet(nn.Module):
 
 
 class CustomASRDataset(Dataset):
-    def __init__(self, audio_dir, label_dir):
+    def __init__(self, audio_dir, label_dir, frame_length):
         self.audio_dir = audio_dir
-        audio_data = utils.load_wav_files(audio_dir)
-
-        # in case of working with the spectrogram, split the spectrogram
-        self.specs = torch.Tensor(audio_data)
-
-        # in case of working with mfcc features
-        # audio_data = utils.load_wav_files(audio_dir)
+        self.audio_data, self.input_length = utils.load_wav_files(audio_dir)
 
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
+        self.frame_length = frame_length
 
     def __len__(self):
         return len(self.file_list)
 
     def __getitem__(self, idx):
-        # Load the corresponding label (assuming the label file has the same name as the audio file)
         audio_filename = self.file_list[idx]
         label_filename = os.path.splitext(audio_filename)[0] + ".txt"
         label_path = os.path.join(self.label_dir, label_filename)
@@ -94,10 +82,25 @@ class CustomASRDataset(Dataset):
         with open(label_path, 'r') as label_file:
             label = label_file.read().strip()
 
-        # find the spectrogram 
-        spectrogram = self.specs[idx]
+        # Split the spectrogram into frames of length 'frame_length'
+        spectrogram = self.audio_data[idx]
+        num_frames = spectrogram.shape[1] // self.frame_length
+        spectrogram_frames = torch.split(spectrogram[:, :num_frames * self.frame_length], self.frame_length, dim=1)
 
-        return spectrogram, label
+        return spectrogram_frames, label, self.input_length[idx], len(spectrogram_frames)
+
+
+def custom_collate_fn(batch):
+    spectrogram_frames, labels = zip(*batch)
+
+    # Pad the spectrogram frames to the length of the longest frame in the batch
+    max_frame_length = max(frame.shape[1] for frame in spectrogram_frames)
+    padded_spectrogram_frames = torch.stack(
+        [torch.nn.functional.pad(frame, (0, max_frame_length - frame.shape[1])) for frame in spectrogram_frames]
+    )
+
+    # Return the padded spectrogram frames and original labels
+    return padded_spectrogram_frames, labels
 
 
 def main():
@@ -107,10 +110,10 @@ def main():
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt')
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt',128)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt')
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt',128)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
@@ -123,8 +126,11 @@ def main():
     for epoch in np.arange(epochs):
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
         validation_loss.append(dataloader_score(net, validation_loader))
+        torch.save(net.state_dict(),
+                   f'saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}.pt')
         if early_stopper.early_stop(validation_loss):
             break
+    print(zip(train_loss, validation_loss))
 
     # TODO: plt losses
     # TODO:
@@ -134,7 +140,7 @@ def main():
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     # Iterate through the training data
     # data=batch,, label
-    #spectrogram, target_text, spectrogram_lengths, target_lengths
+    # spectrogram, target_text, spectrogram_lengths, target_lengths
     for specs, labels in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
