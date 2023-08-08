@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 from jiwer import wer
 import utils
 import os
-from nets import *
+#from nets import *
 
 index2char, char2index = utils.create_index(['@'])
 train_path = r'an4\\train\\an4\\'
@@ -38,6 +38,8 @@ class CharacterDetectionNet(nn.Module):
 
     def forward(self, x):
         print(x.shape)
+        x = x.permute(0, 1, 3, 2)
+        print(x.shape)
         x = self.relu(self.conv0(x))
         print(x.shape)
         x = self.relu(self.conv1(x))
@@ -52,7 +54,9 @@ class CharacterDetectionNet(nn.Module):
         print(x.shape)
         x = self.maxpooling(self.relu(self.conv6(x)))
         print(x.shape)
-        x = self.flatten(x).permute(2, 0, 1)
+        x = self.flatten(x)
+        print(x.shape)
+        x = x.permute(2, 0, 1)
         print(x.shape)
         x = self.linear(x)
         print(x.shape)
@@ -63,7 +67,7 @@ class CharacterDetectionNet(nn.Module):
 
 
 def hash_label(label: str):
-    return [char2index[c] for c in label.lower()]
+    return torch.tensor([char2index[c] for c in label.lower()])
 
 
 class CustomASRDataset(Dataset):
@@ -95,9 +99,8 @@ class CustomASRDataset(Dataset):
         with open(label_path, 'r') as label_file:
             label = label_file.read().strip()
 
-        # Spectrogram is splitted to 128 values per time steps. time step decided by max length at __init__,load_wav_...
+        # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
         spectrogram = self.audio_data[idx]
-
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
@@ -140,11 +143,10 @@ def main():
     early_stopper = EarlyStopper(patience=3, min_delta=10)
     for epoch in np.arange(epochs):
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
-        validation_loss.append(dataloader_score(net, validation_loader))
-        torch.save(net.state_dict(),
-                   f'saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}.pt')
-        if early_stopper.early_stop(validation_loss):
-            break
+        validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
+        torch.save(net.state_dict(), f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
+        #if early_stopper.early_stop(validation_loss):
+        #    break
     print(zip(train_loss, validation_loss))
 
     # TODO: plt losses
@@ -154,8 +156,6 @@ def main():
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     # Iterate through the training data
-    # data=batch,, label
-    # spectrogram, target_text, spectrogram_lengths, target_lengths
     for specs, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
@@ -167,7 +167,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         output = net(specs)
 
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+        loss = loss_function(log_probs=output, targets=target_text, input_lengths=spectrogram_lengths, target_lengths=target_lengths)
 
         # Backward pass and optimization
         loss.backward()
@@ -176,12 +176,20 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         return loss.item()
 
 
-def dataloader_score(net, data_loader):
+def dataloader_score(loss_function, net, data_loader):
     i = 0
     loss = 0
     with torch.no_grad():
-        for item, label in data_loader:
-            loss = nn.CTCLoss(net(item), label)
+        for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
+            # add dimension for the channels
+            specs = torch.unsqueeze(specs, 1)
+
+            # Forward pass
+            output = net(specs)
+
+            # compute loss
+            loss += loss_function(output, target_text, spectrogram_lengths, target_lengths)
+
             i += 1
     return loss / i
 
