@@ -12,6 +12,7 @@ from networks import index2char, char2index, CharacterDetectionNet
 import utils
 
 train_path = r'an4\\train\\an4\\'
+epochs = 300
 
 
 def hash_label(label: str):
@@ -66,9 +67,6 @@ def custom_collate_fn(batch):
 
     # Return the padded spectrogram frames and original labels
     return padded_spectrogram_frames, labels
-
-
-epochs = 100
 
 
 def main():
@@ -184,7 +182,7 @@ class ClassifierArgs:
     path_to_test_data_dir: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 32
+    batch_size = 8
 
 
 class EarlyStopper:
@@ -211,13 +209,9 @@ if __name__ == '__main__':
     # print(device)
 
 """
-load mp3
-extract mel spec
-write NN
-build training function
-    plot function, to plot the test acc (overfiting problem)
-
-
-A) check for gpu
-B) try to overfit a small part of the net, to make sure the function the net
+- basic model
+1 batch norm
+2 to change both models to mfcc
+3 to change both models to waveform
+4 transformers
 """
