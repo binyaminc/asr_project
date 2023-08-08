@@ -10,6 +10,7 @@ import utils
 import os
 # from nets import *
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 import glob
 
 index2char, char2index = utils.create_index(['@'])
@@ -143,7 +144,10 @@ def main():
 
     early_stopper = EarlyStopper(patience=3, min_delta=10)
     for epoch in np.arange(epochs):
+        print(f"start epoch {epoch}")
+
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
+        print(f"sum loss of epoch {epoch} is {train_loss[-1]}")
         validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
         torch.save(net.state_dict(),
                    f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
@@ -151,17 +155,19 @@ def main():
         #    break
     print(zip(train_loss, validation_loss))
 
+    # plt losses
     plt.plot(train_loss)
     plt.plot(validation_loss)
     plt.show()
-    # TODO: plt losses
-    # TODO:
-    # TODO: use test to check the network performance with wer
 
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
+    
+    sum_loss_float = 0
+    i = 0
+
     # Iterate through the training data
-    for specs, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
+    for specs, target_text, spectrogram_lengths, target_lengths in tqdm(training_data_loader):  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
         # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels. 
@@ -171,19 +177,22 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         output = net(specs)
 
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        loss = loss_function(log_probs=output, targets=target_text, input_lengths=spectrogram_lengths,
-                             target_lengths=target_lengths)
+        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+        #print(f"loss after batch {i}: {loss.item()}")
+        sum_loss_float += loss.item()
 
         # Backward pass and optimization
         loss.backward()
         optimizer.step()
 
-        return loss.item()
+        i += 1
+
+    return sum_loss_float
 
 
 def dataloader_score(loss_function, net, data_loader):
-    i = 0
-    loss = 0
+    sum_loss_float = 0
+
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
             # add dimension for the channels
@@ -193,10 +202,10 @@ def dataloader_score(loss_function, net, data_loader):
             output = net(specs)
 
             # compute loss
-            loss += loss_function(output, target_text, spectrogram_lengths, target_lengths)
+            loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+            sum_loss_float += loss.item()
 
-            i += 1
-    return loss / i
+    return sum_loss_float
 
 
 @dataclass
