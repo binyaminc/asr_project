@@ -75,6 +75,15 @@ class CustomASRDataset(Dataset):
         self.file_list = os.listdir(audio_dir)
         self.frame_length = frame_length
 
+        # save the max len of label
+        txt_file_list = os.listdir(label_dir)
+        maxl = 0
+        for label in txt_file_list:
+            with open(label_dir+'\\\\'+label, 'r') as label_file:
+                label = label_file.read().strip()
+                if len(label) > maxl: maxl = len(label)
+        self.max_len_label = maxl
+
     def __len__(self):
         return len(self.file_list)
 
