@@ -5,13 +5,14 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-from jiwer import wer
+# from jiwer import wer
 import utils
 import os
 # from nets import *
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+# from tqdm import tqdm
 import glob
+import time
 
 index2char, char2index = utils.create_index(['@'])
 train_path = r'an4\\train\\an4\\'
@@ -30,7 +31,7 @@ class CharacterDetectionNet(nn.Module):
         self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3, padding=1)
         self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
         self.relu = nn.ReLU()
-        self.softmax = nn.Softmax(dim=1)
+        # self.softmax = torch.nn.functional.log_softmax(dim=2)
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 1))
         self.linear = nn.Linear(1024, len(index2char))
 
@@ -42,30 +43,18 @@ class CharacterDetectionNet(nn.Module):
     def forward(self, x):
         # print(x.shape)
         x = x.permute(0, 1, 3, 2)
-        # print(x.shape)
         x = self.relu(self.conv0(x))
-        # print(x.shape)
         x = self.relu(self.conv1(x))
-        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv2(x)))
-        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv3(x)))
-        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv4(x)))
-        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv5(x)))
-        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv6(x)))
-        # print(x.shape)
         x = self.flatten(x)
-        # print(x.shape)
         x = x.permute(2, 0, 1)
-        # print(x.shape)
         x = self.linear(x)
-        # print(x.shape)
-        x = self.softmax(x)
-        # print(x.shape)
-
+        # x = self.softmax(x)
+        x = torch.nn.functional.log_softmax(x, dim=2)
         return x
 
 
@@ -123,80 +112,58 @@ def custom_collate_fn(batch):
     return padded_spectrogram_frames, labels
 
 
+epochs = 100
+
+
 def main():
     # define the network
     net = CharacterDetectionNet(ClassifierArgs())
+    net.to(device)
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
     training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
-    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
-    epochs = 30
+    optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
     train_loss, validation_loss = [], []
 
     early_stopper = EarlyStopper(patience=3, min_delta=10)
     for epoch in np.arange(epochs):
-        print(f"start epoch {epoch}")
-
+        # start_time = time.time()
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
-        print(f"sum loss of epoch {epoch} is {train_loss[-1]}")
+        print(f"epoch:{epoch} loss:{train_loss[-1]}")
         validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
-        torch.save(net.state_dict(),
-                   f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
+        # end_time = time.time()
+        # print(end_time - start_time)
+        # torch.save(net.state_dict(), f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
         # if early_stopper.early_stop(validation_loss):
         #    break
     print(zip(train_loss, validation_loss))
 
     # plt losses
-    plt.plot(train_loss)
-    plt.plot(validation_loss)
+    plt.plot(train_loss, label='train')
+    plt.plot(validation_loss, label='validation')
+    plt.legend()
+    plt.ylabel('loss')
+    plt.xlabel('epochs')
+    plt.title('Train and Validation Loss')
     plt.show()
-
-
-def train_one_epoch(loss_function, net, optimizer, training_data_loader):
-    
-    sum_loss_float = 0
-    i = 0
-
-    # Iterate through the training data
-    for specs, target_text, spectrogram_lengths, target_lengths in tqdm(training_data_loader):  # (batch, spce, splits,labels)
-        optimizer.zero_grad()
-
-        # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels. 
-        specs = torch.unsqueeze(specs, 1)
-
-        # Forward pass
-        output = net(specs)
-
-        # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
-        #print(f"loss after batch {i}: {loss.item()}")
-        sum_loss_float += loss.item()
-
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
-
-        i += 1
-
-    return sum_loss_float
 
 
 def dataloader_score(loss_function, net, data_loader):
     sum_loss_float = 0
-
+    i = 0
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
             # add dimension for the channels
-            specs = torch.unsqueeze(specs, 1)
+            specs = torch.unsqueeze(specs, 1).to(device)
 
             # Forward pass
             output = net(specs)
@@ -204,8 +171,45 @@ def dataloader_score(loss_function, net, data_loader):
             # compute loss
             loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_loss_float += loss.item()
+            i += 1
 
-    return sum_loss_float
+    return sum_loss_float / i
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # todo add cuda
+
+
+def train_one_epoch(loss_function, net, optimizer, training_data_loader):
+    sum_loss_float = 0
+    i = 0
+
+    torch.enable_grad()
+    # Iterate through the training data
+    for specs, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
+        optimizer.zero_grad()
+
+        # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels.
+        specs = torch.unsqueeze(specs, 1).to(device)
+
+        # Forward pass
+        output = net(specs).to(device)
+        target_text.to(device)
+        spectrogram_lengths.to(device)
+        target_lengths.to(device)
+        # loss = loss_function(output, target_text, output_lengths, target_lengths)
+        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+        # print(f"loss after batch {i}: {loss.item()}")
+        sum_loss_float += loss.item()
+
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+
+        i += 1
+        break
+
+    torch.cuda.empty_cache()
+    return sum_loss_float / i
 
 
 @dataclass
@@ -227,37 +231,6 @@ class ClassifierArgs:
     batch_size = 32
 
 
-class AsrModel:
-
-    def __init__(self, args: ClassifierArgs, net: CharacterDetectionNet):
-        self.charater_detector = net
-        pass
-
-    def general_classification(self, audio_files, method: str):
-        """
-        function to classify a given audio using method distance
-        audio_files: list of audio file paths or a batch of audio files of shape [Batch, Channels, Time]
-        method: the method to calculate distance
-        return: list of predicted results for each entry in the batch
-        """
-        if isinstance(audio_files, list) or isinstance(audio_files, str):
-            audio_files = utils.load_wav_files(audio_files)
-        elif isinstance(audio_files, torch.Tensor):
-            # Average over channels
-            audio_files = audio_files.mean(dim=1)
-        audio_mfcc = utils.extract_mfcc(audio_files)
-
-        predicted_labels = []
-        for audio in audio_mfcc:
-            predicted_labels.append(self.predict(audio))
-
-        return predicted_labels
-
-    # @abstract
-    def predict(self, wav):
-        pass
-
-
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0):
         self.patience = patience
@@ -277,13 +250,9 @@ class EarlyStopper:
 
 
 if __name__ == '__main__':
-
-    print(hash_label('he r LO'))
     main()
-
-    # utils.extract_mfccs()
-
-print("Hellow Neriya!")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(device)
 
 """
 load mp3
@@ -292,4 +261,7 @@ write NN
 build training function
     plot function, to plot the test acc (overfiting problem)
 
+
+A) check for gpu
+B) try to overfit a small part of the net, to make sure the function the net
 """
