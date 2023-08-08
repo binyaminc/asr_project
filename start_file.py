@@ -16,6 +16,7 @@ import time
 
 index2char, char2index = utils.create_index(['@'])
 train_path = r'an4\\train\\an4\\'
+epochs = 300
 
 
 class CharacterDetectionNet(nn.Module):
@@ -31,7 +32,6 @@ class CharacterDetectionNet(nn.Module):
         self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3, padding=1)
         self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
         self.relu = nn.ReLU()
-        # self.softmax = torch.nn.functional.log_softmax(dim=2)
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 1))
         self.linear = nn.Linear(1024, len(index2char))
 
@@ -41,7 +41,6 @@ class CharacterDetectionNet(nn.Module):
         #               range(1, len(conv_kernels))]
 
     def forward(self, x):
-        # print(x.shape)
         x = x.permute(0, 1, 3, 2)
         x = self.relu(self.conv0(x))
         x = self.relu(self.conv1(x))
@@ -53,7 +52,6 @@ class CharacterDetectionNet(nn.Module):
         x = self.flatten(x)
         x = x.permute(2, 0, 1)
         x = self.linear(x)
-        # x = self.softmax(x)
         x = torch.nn.functional.log_softmax(x, dim=2)
         return x
 
@@ -110,9 +108,6 @@ def custom_collate_fn(batch):
 
     # Return the padded spectrogram frames and original labels
     return padded_spectrogram_frames, labels
-
-
-epochs = 100
 
 
 def main():
@@ -228,7 +223,7 @@ class ClassifierArgs:
     path_to_test_data_dir: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 32
+    batch_size = 8
 
 
 class EarlyStopper:
@@ -255,13 +250,9 @@ if __name__ == '__main__':
     # print(device)
 
 """
-load mp3
-extract mel spec
-write NN
-build training function
-    plot function, to plot the test acc (overfiting problem)
-
-
-A) check for gpu
-B) try to overfit a small part of the net, to make sure the function the net
+- basic model
+1 batch norm
+2 to change both models to mfcc
+3 to change both models to waveform
+4 transformers
 """
