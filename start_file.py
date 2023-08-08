@@ -105,8 +105,6 @@ class CustomASRDataset(Dataset):
             label = label_file.read().strip()
 
         # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
-        if idx == 853:
-            pass
         spectrogram = self.audio_data[idx]
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
