@@ -76,12 +76,9 @@ class CustomASRDataset(Dataset):
     def __init__(self, audio_dir, label_dir, frame_length):
         self.audio_dir = audio_dir
         self.audio_data, self.input_length = utils.load_wav_files(audio_dir)
-        print(len(self.audio_data))
-
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
         self.file_list = [x for x in os.listdir(audio_dir) if x.endswith('.wav')]
-        print(len(self.file_list))
         self.frame_length = frame_length
 
         # save the max len of label
