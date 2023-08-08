@@ -10,7 +10,7 @@ import utils
 import os
 from nets import *
 
-index2char, char2index = utils.create_index([''])
+index2char, char2index = utils.create_index(['@'])
 train_path = r'an4\\train\\an4\\'
 
 
@@ -52,7 +52,7 @@ class CharacterDetectionNet(nn.Module):
         print(x.shape)
         x = self.maxpooling(self.relu(self.conv6(x)))
         print(x.shape)
-        x = self.flatten(x).permute(2,0,1)
+        x = self.flatten(x).permute(2, 0, 1)
         print(x.shape)
         x = self.linear(x)
         print(x.shape)
@@ -79,7 +79,7 @@ class CustomASRDataset(Dataset):
         txt_file_list = os.listdir(label_dir)
         maxl = 0
         for label in txt_file_list:
-            with open(label_dir+'\\\\'+label, 'r') as label_file:
+            with open(label_dir + '\\\\' + label, 'r') as label_file:
                 label = label_file.read().strip()
                 if len(label) > maxl: maxl = len(label)
         self.max_len_label = maxl
@@ -98,9 +98,11 @@ class CustomASRDataset(Dataset):
         # Spectrogram is splitted to 128 values per time steps. time step decided by max length at __init__,load_wav_...
         spectrogram = self.audio_data[idx]
 
+        pad = self.max_len_label - len(label)
+        label = label + pad * '@'
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
         # todo fix length of labels to be the same across all the dataset + keep the forth element true to its meaning
-        return spectrogram, hash_label(label), self.input_length[idx], len(label)
+        return spectrogram, hash_label(label), self.input_length[idx], len(label) - pad
 
 
 def custom_collate_fn(batch):
@@ -123,10 +125,10 @@ def main():
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt',128)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt',128)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
@@ -154,7 +156,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     # Iterate through the training data
     # data=batch,, label
     # spectrogram, target_text, spectrogram_lengths, target_lengths
-    for specs, labels in training_data_loader:  # (batch, spce, splits,labels)
+    for specs, target_text, spectrogram_lengths, target_lengths in training_data_loader:  # (batch, spce, splits,labels)
         optimizer.zero_grad()
 
         # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels. 
@@ -165,8 +167,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         output = net(specs)
 
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        labels_length = torch.tensor([len(s) for s in labels])
-        loss = loss_function(output, labels, labels_length, labels.shape[1])
+        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
 
         # Backward pass and optimization
         loss.backward()
