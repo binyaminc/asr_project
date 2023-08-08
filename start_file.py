@@ -8,11 +8,12 @@ from torch.utils.data import DataLoader, Dataset
 import os
 import matplotlib.pyplot as plt
 
-from networks import index2char, char2index, CharacterDetectionNet
+from networks import index2char, char2index
+from networks import CharacterDetectionNet_1, CharacterDetectionNet_norm
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 300
+epochs = 10
 
 
 def hash_label(label: str):
@@ -71,7 +72,8 @@ def custom_collate_fn(batch):
 
 def main():
     # define the network
-    net = CharacterDetectionNet(ClassifierArgs())
+    #net = CharacterDetectionNet_1(ClassifierArgs())
+    net = CharacterDetectionNet_norm(ClassifierArgs())
     net.to(device)
 
     # Define the CTC loss
@@ -92,7 +94,7 @@ def main():
     for epoch in np.arange(epochs):
         # start_time = time.time()
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
-        print(f"epoch:{epoch} loss:{train_loss[-1]}")
+        print(f"epoch {epoch}: loss = {train_loss[-1]}")
         validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
         # end_time = time.time()
         # print(end_time - start_time)
