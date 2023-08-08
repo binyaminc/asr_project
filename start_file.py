@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader, Dataset
 from jiwer import wer
 import utils
 import os
-#from nets import *
+# from nets import *
+import matplotlib.pyplot as plt
+import glob
 
 index2char, char2index = utils.create_index(['@'])
 train_path = r'an4\\train\\an4\\'
@@ -37,31 +39,31 @@ class CharacterDetectionNet(nn.Module):
         #               range(1, len(conv_kernels))]
 
     def forward(self, x):
-        print(x.shape)
+        # print(x.shape)
         x = x.permute(0, 1, 3, 2)
-        print(x.shape)
+        # print(x.shape)
         x = self.relu(self.conv0(x))
-        print(x.shape)
+        # print(x.shape)
         x = self.relu(self.conv1(x))
-        print(x.shape)
+        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv2(x)))
-        print(x.shape)
+        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv3(x)))
-        print(x.shape)
+        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv4(x)))
-        print(x.shape)
+        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv5(x)))
-        print(x.shape)
+        # print(x.shape)
         x = self.maxpooling(self.relu(self.conv6(x)))
-        print(x.shape)
+        # print(x.shape)
         x = self.flatten(x)
-        print(x.shape)
+        # print(x.shape)
         x = x.permute(2, 0, 1)
-        print(x.shape)
+        # print(x.shape)
         x = self.linear(x)
-        print(x.shape)
+        # print(x.shape)
         x = self.softmax(x)
-        print(x.shape)
+        # print(x.shape)
 
         return x
 
@@ -74,9 +76,12 @@ class CustomASRDataset(Dataset):
     def __init__(self, audio_dir, label_dir, frame_length):
         self.audio_dir = audio_dir
         self.audio_data, self.input_length = utils.load_wav_files(audio_dir)
+        print(len(self.audio_data))
 
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
+        self.file_list = [x for x in os.listdir(audio_dir) if x.endswith('.wav')]
+        print(len(self.file_list))
         self.frame_length = frame_length
 
         # save the max len of label
@@ -100,11 +105,12 @@ class CustomASRDataset(Dataset):
             label = label_file.read().strip()
 
         # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
+        if idx == 853:
+            pass
         spectrogram = self.audio_data[idx]
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
-        # todo fix length of labels to be the same across all the dataset + keep the forth element true to its meaning
         return spectrogram, hash_label(label), self.input_length[idx], len(label) - pad
 
 
@@ -144,11 +150,15 @@ def main():
     for epoch in np.arange(epochs):
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
         validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
-        torch.save(net.state_dict(), f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
-        #if early_stopper.early_stop(validation_loss):
+        torch.save(net.state_dict(),
+                   f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
+        # if early_stopper.early_stop(validation_loss):
         #    break
     print(zip(train_loss, validation_loss))
 
+    plt.plot(train_loss)
+    plt.plot(validation_loss)
+    plt.show()
     # TODO: plt losses
     # TODO:
     # TODO: use test to check the network performance with wer
@@ -161,13 +171,13 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
 
         # instead of the shape (32, 128, 276), I want a shape (32, 1, 128, 276) s.t. the input will have 1 channels. 
         specs = torch.unsqueeze(specs, 1)
-        print(specs.shape)
 
         # Forward pass
         output = net(specs)
 
         # loss = loss_function(output, target_text, output_lengths, target_lengths)
-        loss = loss_function(log_probs=output, targets=target_text, input_lengths=spectrogram_lengths, target_lengths=target_lengths)
+        loss = loss_function(log_probs=output, targets=target_text, input_lengths=spectrogram_lengths,
+                             target_lengths=target_lengths)
 
         # Backward pass and optimization
         loss.backward()
@@ -263,6 +273,7 @@ class EarlyStopper:
 
 
 if __name__ == '__main__':
+
     print(hash_label('he r LO'))
     main()
 

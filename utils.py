@@ -91,6 +91,7 @@ def load_wav_files(paths):
     max_len = 0
     input_len_list = []
     for file_path in file_list:
+        if not file_path.endswith('.wav'): continue
         waveform, sr = librosa.load(file_path, mono=True)
         spec = librosa.feature.melspectrogram(y=waveform, sr=sr).T  # extract (128,T) convert to (T,128)
         spectogram_list.append(spec)
