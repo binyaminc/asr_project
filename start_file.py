@@ -186,6 +186,30 @@ def dataloader_score(loss_function, net, data_loader):
     return sum_ctc_loss / i, sum_wer_loss / i
 
 
+def get_wer_loss(output, target_text):
+
+    # convert output to (batch_size, time_slices, characters)
+    output = output.permute(1, 0, 2)
+
+    wer_losses_sum = []
+
+    for (i, probs) in enumerate(output):
+        sentences = beam_search(probs, n=3)
+        best_sentence = sentences[0]
+        
+        # TODO: use WER library to calc wer loss, in comparison with target_text
+        #wer_loss = some_comparison(best_sentence, target_text[i])
+        wer_loss = 0
+        wer_losses_sum.append(wer_loss)
+    
+    return wer_losses_sum / i
+
+
+def beam_search(probs, n=3):
+    pass
+    
+
+
 @dataclass
 class ClassifierArgs:
     """
@@ -210,13 +234,13 @@ class EarlyStopper:
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
-        self.min_validation_losses = np.inf
+        self.min_validation_loss = np.inf
 
-    def early_stop(self, validation_losses):
-        if validation_losses < self.min_validation_losses:
-            self.min_validation_losses = validation_losses
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
             self.counter = 0
-        elif validation_losses > (self.min_validation_losses + self.min_delta):
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
             self.counter += 1
             if self.counter >= self.patience:
                 return True
@@ -231,7 +255,8 @@ if __name__ == '__main__':
 """
 - basic model
 1 batch norm                            V
-2 to change both models to mfcc         ?
-3 to change both models to waveform     ?
-4 transformers
+2 WER metric                            ?
+3 to change both models to mfcc         ?
+4 to change both models to waveform     ?
+5 transformers
 """
