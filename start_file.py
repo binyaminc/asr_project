@@ -9,11 +9,12 @@ import os
 import matplotlib.pyplot as plt
 
 from networks import index2char, char2index
-from networks import CharacterDetectionNet_1, CharacterDetectionNet_norm
+from networks import CharacterDetectionNet_1, CharacterDetectionNet_1_batch_normed
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 120
+epochs = 100
+DATASET_STATES = {'WAVEFORM', 'MFC', 'MFCC'}
 
 
 def hash_label(label: str):
@@ -21,7 +22,9 @@ def hash_label(label: str):
 
 
 class CustomASRDataset(Dataset):
-    def __init__(self, audio_dir, label_dir, frame_length):
+    def __init__(self, audio_dir, label_dir, frame_length, input_type='MFC'):
+        # as input type defines the pre processing of the data.
+        assert input_type in DATASET_STATES
         self.audio_dir = audio_dir
         self.audio_data, self.input_length = utils.load_wav_files(audio_dir)
         self.label_dir = label_dir
@@ -72,8 +75,8 @@ def custom_collate_fn(batch):
 
 def main():
     # define the network
-    #net = CharacterDetectionNet_1(ClassifierArgs())
-    net = CharacterDetectionNet_1(ClassifierArgs())
+    # net = CharacterDetectionNet_1(ClassifierArgs())
+    net = CharacterDetectionNet_1_batch_normed(ClassifierArgs())
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
@@ -99,9 +102,10 @@ def main():
         validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
         # end_time = time.time()
         # print(end_time - start_time)
-        # torch.save(net.state_dict(), f'epoch {epoch}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
+        # if epoch == epochs - 1:
+        #     torch.save(net.state_dict(),
+        #                f'{type(net)}_epoch{epoch}_t_loss_{train_loss[-1]}_v_loss{validation_loss[-1]}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
         # if early_stopper.early_stop(validation_loss):
-        #    break
     print(zip(train_loss, validation_loss))
 
     # plt losses
@@ -164,6 +168,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
+        break
 
     torch.cuda.empty_cache()
     return sum_loss_float / i
@@ -213,8 +218,8 @@ if __name__ == '__main__':
 
 """
 - basic model
-1 batch norm
-2 to change both models to mfcc
-3 to change both models to waveform
+1 batch norm                            V
+2 to change both models to mfcc         ?
+3 to change both models to waveform     ?
 4 transformers
 """
