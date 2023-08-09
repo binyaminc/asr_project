@@ -16,6 +16,8 @@ train_path = r'an4\\train\\an4\\'
 epochs = 100
 DATASET_STATES = {'WAVEFORM', 'MFC', 'MFCC'}
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def hash_label(label: str):
     return torch.tensor([char2index[c] for c in label.lower()])
@@ -90,27 +92,33 @@ def main():
     # Set up the training loop
     optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
-    train_loss, validation_loss = [], []
+    train_CTC_losses, val_CTC_losses = [], []
+    train_WER_losses, val_WER_losses = [], []
 
     early_stopper = EarlyStopper(patience=3, min_delta=10)
 
     net.to(device)
     for epoch in np.arange(epochs):
         # start_time = time.time()
-        train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
-        print(f"epoch {epoch}: loss = {train_loss[-1]}")
-        validation_loss.append(dataloader_score(ctc_loss, net, validation_loader))
+        train_CTC_loss, train_WER_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
+        train_CTC_losses.append(train_CTC_loss)
+        train_WER_losses.append(train_WER_loss)
+        print(f"epoch {epoch}: loss = {train_CTC_losses[-1]}")
+
+        val_CTC_loss, val_WER_loss = dataloader_score(ctc_loss, net, validation_loader)
+        val_CTC_losses.append(val_CTC_loss)
+        val_WER_losses.append(val_WER_loss)
         # end_time = time.time()
         # print(end_time - start_time)
         # if epoch == epochs - 1:
         #     torch.save(net.state_dict(),
-        #                f'{type(net)}_epoch{epoch}_t_loss_{train_loss[-1]}_v_loss{validation_loss[-1]}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
-        # if early_stopper.early_stop(validation_loss):
-    print(zip(train_loss, validation_loss))
+        #                f'{type(net)}_epoch{epoch}_t_loss_{train_losses[-1]}_v_loss{validation_losses[-1]}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
+        # if early_stopper.early_stop(validation_losses):
+    print(zip(train_CTC_losses, val_CTC_losses))
 
     # plt losses
-    plt.plot(train_loss, label='train')
-    plt.plot(validation_loss, label='validation')
+    plt.plot(train_CTC_losses, label='train')
+    plt.plot(val_CTC_losses, label='validation')
     plt.legend()
     plt.ylabel('loss')
     plt.xlabel('epochs')
@@ -118,33 +126,8 @@ def main():
     plt.show()
 
 
-def dataloader_score(loss_function, net, data_loader):
-    sum_loss_float = 0
-    i = 0
-    with torch.no_grad():
-        for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
-            # add dimension for the channels
-            specs = torch.unsqueeze(specs, 1).to(device)
-
-            # Forward pass
-            output = net(specs)
-            target_text.to(device)
-            spectrogram_lengths.to(device)
-            target_lengths.to(device)
-
-            # compute loss
-            loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
-            sum_loss_float += loss.item()
-            i += 1
-
-    return sum_loss_float / i
-
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # todo add cuda
-
-
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
-    sum_loss_float = 0
+    sum_ctc_loss, sum_wer_loss = 0, 0
     i = 0
 
     torch.enable_grad()
@@ -160,18 +143,47 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         target_text.to(device)
         spectrogram_lengths.to(device)
         target_lengths.to(device)
-        loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
-        sum_loss_float += loss.item()
+
+        # compute loss
+        ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+        sum_ctc_loss += ctc_loss.item()
+        wer_loss = get_wer_loss(output, target_text)  # target_lengths?
+        sum_wer_loss += wer_loss
 
         # Backward pass and optimization
-        loss.backward()
+        ctc_loss.backward()
         optimizer.step()
 
         i += 1
         break
 
     torch.cuda.empty_cache()
-    return sum_loss_float / i
+    return sum_ctc_loss / i, sum_wer_loss / i
+
+
+def dataloader_score(loss_function, net, data_loader):
+    sum_ctc_loss, sum_wer_loss = 0, 0
+    i = 0
+    with torch.no_grad():
+        for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
+            # add dimension for the channels
+            specs = torch.unsqueeze(specs, 1).to(device)
+
+            # Forward pass
+            output = net(specs)
+            target_text.to(device)
+            spectrogram_lengths.to(device)
+            target_lengths.to(device)
+
+            # compute ctc loss
+            ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
+            sum_ctc_loss += ctc_loss.item()
+            # compute wer loss
+            wer_loss = get_wer_loss(output, target_text)  # target_lengths?
+            sum_wer_loss += wer_loss
+            i += 1
+
+    return sum_ctc_loss / i, sum_wer_loss / i
 
 
 @dataclass
@@ -198,13 +210,13 @@ class EarlyStopper:
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
-        self.min_validation_loss = np.inf
+        self.min_validation_losses = np.inf
 
-    def early_stop(self, validation_loss):
-        if validation_loss < self.min_validation_loss:
-            self.min_validation_loss = validation_loss
+    def early_stop(self, validation_losses):
+        if validation_losses < self.min_validation_losses:
+            self.min_validation_losses = validation_losses
             self.counter = 0
-        elif validation_loss > (self.min_validation_loss + self.min_delta):
+        elif validation_losses > (self.min_validation_losses + self.min_delta):
             self.counter += 1
             if self.counter >= self.patience:
                 return True
