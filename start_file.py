@@ -13,7 +13,7 @@ from networks import CharacterDetectionNet_1, CharacterDetectionNet_norm
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 10
+epochs = 120
 
 
 def hash_label(label: str):
@@ -73,8 +73,7 @@ def custom_collate_fn(batch):
 def main():
     # define the network
     #net = CharacterDetectionNet_1(ClassifierArgs())
-    net = CharacterDetectionNet_norm(ClassifierArgs())
-    net.to(device)
+    net = CharacterDetectionNet_1(ClassifierArgs())
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
@@ -91,6 +90,8 @@ def main():
     train_loss, validation_loss = [], []
 
     early_stopper = EarlyStopper(patience=3, min_delta=10)
+
+    net.to(device)
     for epoch in np.arange(epochs):
         # start_time = time.time()
         train_loss.append(train_one_epoch(ctc_loss, net, optimizer, training_loader))
@@ -123,6 +124,9 @@ def dataloader_score(loss_function, net, data_loader):
 
             # Forward pass
             output = net(specs)
+            target_text.to(device)
+            spectrogram_lengths.to(device)
+            target_lengths.to(device)
 
             # compute loss
             loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
@@ -148,13 +152,11 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         specs = torch.unsqueeze(specs, 1).to(device)
 
         # Forward pass
-        output = net(specs).to(device)
+        output = net(specs)
         target_text.to(device)
         spectrogram_lengths.to(device)
         target_lengths.to(device)
-        # loss = loss_function(output, target_text, output_lengths, target_lengths)
         loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
-        # print(f"loss after batch {i}: {loss.item()}")
         sum_loss_float += loss.item()
 
         # Backward pass and optimization
@@ -162,7 +164,6 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
-        break
 
     torch.cuda.empty_cache()
     return sum_loss_float / i

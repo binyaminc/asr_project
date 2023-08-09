@@ -138,3 +138,16 @@ class EarlyStopper:
             if self.counter >= self.patience:
                 return True
         return False
+
+
+# def k_beam(batch: int, probability_tensor: tensor, index: dict):
+#     """
+#     batch: the size of the
+#     @param:probability_tensor - Time steps, probability_per_index.
+#     @description:
+#     """
+#     epsilon_end_dict, char_end_dict = {}, {}
+#     p = torch.argmax(probability_tensor[0])
+#
+#     # init starting values:
+#     pass
