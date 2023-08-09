@@ -206,7 +206,65 @@ def get_wer_loss(output, target_text):
 
 
 def beam_search(probs, n=3):
-    pass
+    """
+    n - beam width, the amount of trails I follow in each step.
+    """
+    probs = probs.detach().numpy()
+    # TODO: convert log_softmax to regular softmax, so that we can add and multiple normally
+    texts = {}
+
+    # initialize dictionary with the first time slice
+    step0_probs = probs[0]
+    biggest_idxes = sorted(range(len(step0_probs)), key = lambda p: step0_probs[p])[-n:]  # TODO: could be more efficient
+    for idx in biggest_idxes:
+        texts[str(idx)] = [step0_probs[idx], 0]  # example: texts['a'] = [P('a'), P('a<e>')=0]
+    if '0' in texts:
+        texts['0'] = [0, texts['0'][0]] # TODO: not sure is necessary
+
+    for step_probs in probs[1:]:
+        new_texts = {}
+        biggest_idxes = sorted(range(len(step_probs)), key = lambda p: step_probs[p])[-n:]
+        
+        for text, trail_probs in texts.items():  # trails = [P(trail), P(trail + e)]
+
+            new_texts = add_step_to_trail(new_texts, text, trail_probs[0], step_probs)
+            new_texts = add_step_to_trail(new_texts, text + '0', trail_probs[1], step_probs)
+            
+            # TODO: 1. find the 3 entries with the highest probability
+            #       2. find the prefixes of those, only 3 steps back
+            #       3. save only 3 best and prefixes, throw others.  
+
+    return 0
+
+
+def add_step_to_trail(texts, trail, prob, step_probs):
+
+    for (char, char_prob) in step_probs:
+        new_trail = canonicalize(trail + str(char))
+        new_prob = prob * char_prob
+
+        # will be continued...
+
+    return 0
+
+
+def canonicalize(trail: str):
+    '''
+    converts output trail of the NN to readable text.
+    example: trail = 'aa<e>b<e>b<e>' (when <e> is epsilon)
+             output = 'abb<e>'
+    '''
+    # going in reversed order to delete doubles
+    for i in range(len(trail) - 1, 0, -1):  
+        if trail[i] == trail[i - 1]:
+            trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
+
+    # going in reversed order to delete epsilon, except for the last epsilon (if exists)
+    for i in range(len(trail) - 2, -1, -1):
+        if trail[i] == '0': 
+            trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
+    
+    return trail
     
 
 
