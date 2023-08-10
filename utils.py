@@ -68,11 +68,13 @@ def calculate_probability(matrix_path: torch.Tensor, labels: str, alphabet: list
     return ctc_matrix[-1, -1] + ctc_matrix[-2, -1]
 
 
-def load_wav_files(paths):
+def load_wav_files(paths, state='MFC'):
     """
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
     """
+    chunk_size = 2024
+    overlap = 512
     spectogram_list = []
 
     if isinstance(paths, str):
@@ -92,17 +94,28 @@ def load_wav_files(paths):
     input_len_list = []
     for file_path in file_list:
         if not file_path.endswith('.wav'): continue
-        waveform, sr = librosa.load(file_path, mono=True)
-        spec = librosa.feature.melspectrogram(y=waveform, sr=sr).T  # extract (128,T) convert to (T,128)
-        spectogram_list.append(spec)
-        input_len_list.append(spec.shape[0])
-        if max_len < spec.shape[0]:
-            max_len = spec.shape[0]
+        data, sr = librosa.load(file_path, mono=True)  # data = waveform
+        if state == 'MFCC':
+            data = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=128)
+        if state == 'MFC':
+            data = librosa.feature.melspectrogram(y=data, sr=sr).T  # extract (128,T) convert to (T,128)
+        elif state == 'WAVEFORM':
+            # Calculate the starting indices of each chunk
+            start_indices = np.arange(0, len(data), chunk_size - overlap)
+            data = np.pad(data, data//2024)
+            # Split the array into chunks using the calculated indices
+            data = np.array([data[i:i + chunk_size] for i in start_indices])
+        # else:
 
-    for (i, spec) in enumerate(spectogram_list):
-        if spec.shape[0] < max_len:
-            pad_len = max_len - spec.shape[0]
-            spectogram_list[i] = np.pad(spec, ((0, pad_len), (0, 0)), mode='constant')
+        spectogram_list.append(data)  # todo check size of data with WAVEFORM. make sure its (T,128)
+        input_len_list.append(data.shape[0])
+        if max_len < data.shape[0]:
+            max_len = data.shape[0]
+
+    for (i, data) in enumerate(spectogram_list):
+        if data.shape[0] < max_len:
+            pad_len = max_len - data.shape[0]
+            spectogram_list[i] = np.pad(data, ((0, pad_len), (0, 0)), mode='constant')
 
     spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
     input_len_tensor = torch.tensor(data=input_len_list)
@@ -138,7 +151,6 @@ class EarlyStopper:
             if self.counter >= self.patience:
                 return True
         return False
-
 
 # def k_beam(batch: int, probability_tensor: tensor, index: dict):
 #     """
