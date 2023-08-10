@@ -199,7 +199,7 @@ def get_wer_loss(output, target_text):
         n_sentences = beam_search(probs, n=3)
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
-        best_sentence = best_sentence.replace('@', '').replace('<blank>', '')
+        best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
 
         curr_reference = ''.join([index2char[c] for c in target_text[i]])
         curr_reference = curr_reference.replace('@', '')
