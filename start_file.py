@@ -4,19 +4,39 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-from jiwer import wer
+# from jiwer import wer
 import os
 import matplotlib.pyplot as plt
 
 from networks import index2char, char2index
-from networks import CharacterDetectionNet_1, CharacterDetectionNet_1_batch_normed
+from networks import *
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 100
-DATASET_STATES = {'WAVEFORM', 'MFC', 'MFCC'}
+epochs = 30
+DATASET_STATES = ['WAVEFORM', 'MFC', 'MFCC']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+@dataclass
+class ClassifierArgs:
+    """
+    This dataclass defines a training configuration.
+    feel free to add/change it as you see fit, do NOT remove the following fields as we will use
+    them in test time.
+    If you add additional values to your training configuration please add them in here with
+    default values (so run won't break when we test this).
+    """
+    # we will use this to give an absolute path to the data, make sure you read the data using this argument.
+    # you may assume the train data is the same
+    training_path: str = "./an4/train/an4/"
+    val_path: str = "./an4/val/an4/"
+    test_path: str = "./an4/test/an4/"
+
+    kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
+    batch_size = 8
+    save_model = False
 
 
 def hash_label(label: str):
@@ -28,7 +48,7 @@ class CustomASRDataset(Dataset):
         # as input type defines the pre processing of the data.
         assert input_type in DATASET_STATES
         self.audio_dir = audio_dir
-        self.audio_data, self.input_length = utils.load_wav_files(audio_dir)
+        self.audio_data, self.input_length = utils.load_wav_files(audio_dir, input_type)
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
         self.file_list = [x for x in os.listdir(audio_dir) if x.endswith('.wav')]
@@ -80,29 +100,31 @@ def main():
     # net = CharacterDetectionNet_1(ClassifierArgs())
     # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
     #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
-
-    net = CharacterDetectionNet_1_batch_normed(ClassifierArgs())
+    data_state = DATASET_STATES[0]
+    net = CharNet_1(ClassifierArgs())
 
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, data_state)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, data_state)
+    test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
     optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
-    train_CTC_losses, val_CTC_losses = [], []
-    train_WER_losses, val_WER_losses = [], []
+    train_CTC_losses, val_CTC_losses, test_CTC_losses = [], [], []
+    train_WER_losses, val_WER_losses, test_WER_losses = [], [], []
 
-    early_stopper = EarlyStopper(patience=3, min_delta=10)
+    early_stopper = EarlyStopper(patience=1, min_delta=5)
 
     net.to(device)
     for epoch in np.arange(epochs):
-        # start_time = time.time()
         train_CTC_loss, train_WER_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
         train_CTC_losses.append(train_CTC_loss)
         train_WER_losses.append(train_WER_loss)
@@ -111,22 +133,36 @@ def main():
         val_CTC_loss, val_WER_loss = dataloader_score(ctc_loss, net, validation_loader)
         val_CTC_losses.append(val_CTC_loss)
         val_WER_losses.append(val_WER_loss)
-        # end_time = time.time()
-        # print(end_time - start_time)
-        # if epoch == epochs - 1:
-        #     torch.save(net.state_dict(),
-        #                f'{type(net)}_epoch{epoch}_t_loss_{train_losses[-1]}_v_loss{validation_losses[-1]}.pt')  # saved_models/_input_{input_size}/d_model_{d_model}/n_heads_{nhead}/n_encoder_{num_encoder_layers}/epoch_{epoch}
-        # if early_stopper.early_stop(validation_losses):
-    print(zip(train_CTC_losses, val_CTC_losses))
 
+        test_CTC_loss, test_WER_loss = dataloader_score(ctc_loss, net, test_loader)
+        test_CTC_losses.append(test_CTC_loss)
+        test_WER_losses.append(test_WER_loss)
+
+        if (early_stopper.early_stop(val_CTC_loss) or epoch == epochs - 1) and ClassifierArgs.save_model:
+            torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
+            break
+
+    # can be shortened to a loop, later on.
+    plot_name = f'{net.name}_{data_state}_ctc'
+    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+            data=[train_CTC_losses, val_CTC_losses, test_CTC_losses],
+            data_labels=['training loss', 'val loss', 'test loss'])
+
+    plot_name = f'{net.name} {data_state} wer'
+    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+            data=[train_WER_losses, val_WER_losses, test_WER_losses],
+            data_labels=['training loss', 'val loss', 'test loss'])
+
+
+def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     # plt losses
-    plt.plot(train_CTC_losses, label='train')
-    plt.plot(val_CTC_losses, label='validation')
+    for i in range(len(data)):
+        plt.plot(data[i], label=data_labels[i])
     plt.legend()
-    plt.ylabel('loss')
-    plt.xlabel('epochs')
-    plt.title('Train and Validation Loss')
-    plt.show()
+    plt.ylabel(y_axis_label)
+    plt.xlabel(x_axis_label)
+    # plt.title(f'{type(net)} data preprocessing {data_state} full')
+    plt.savefig(f'plots/{plot_name}.jpeg')
 
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
@@ -150,15 +186,17 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         # compute loss
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
-        wer_loss = get_wer_loss(output, target_text)  # target_lengths?
-        sum_wer_loss += wer_loss
+
+        # wer loss
+        # wer_loss = get_wer_loss(output, target_text)
+        sum_wer_loss = 0
+        # sum_wer_loss += wer_loss
 
         # Backward pass and optimization
         ctc_loss.backward()
         optimizer.step()
 
         i += 1
-        break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i
@@ -182,9 +220,10 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute wer loss
-            wer_loss = get_wer_loss(output, target_text)  # target_lengths?
-            sum_wer_loss += wer_loss
+            # wer_loss = get_wer_loss(output, target_text)  # target_lengths?
+            # sum_wer_loss += wer_loss
             i += 1
+            sum_wer_loss = 0
 
     return sum_ctc_loss / i, sum_wer_loss / i
 
@@ -196,7 +235,7 @@ def get_wer_loss(output, target_text):
     wer_losses_sum = 0
 
     target_text = target_text.detach().numpy()
-
+    k = 0
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
         best_sentence = n_sentences[-1]
@@ -207,10 +246,12 @@ def get_wer_loss(output, target_text):
         curr_reference = curr_reference.replace('@', '')
 
         # calc wer loss
-        wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
+        # wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
+        wer_loss = 0
         wer_losses_sum += wer_loss
+        i = k
 
-    return wer_losses_sum / (i+1)
+    return wer_losses_sum / (k)
 
 
 def beam_search(probs, n=3):
@@ -225,11 +266,11 @@ def beam_search(probs, n=3):
 
     # initialize dictionary with the first time slice
     step0_probs = probs[0]
-    biggest_idxes = sorted(range(len(step0_probs)), key = lambda p: step0_probs[p])[-n:]  # TODO: could be more efficient
+    biggest_idxes = sorted(range(len(step0_probs)), key=lambda p: step0_probs[p])[-n:]  # TODO: could be more efficient
     for idx in biggest_idxes:
         texts[(idx,)] = [step0_probs[idx], 0]  # example: texts[[a]] = [P([a]), P([a, <e>])=0]
     if (0,) in texts:
-        texts[(0,)] = [0, texts[(0,)][0]] # TODO: not sure is necessary
+        texts[(0,)] = [0, texts[(0,)][0]]  # TODO: not sure is necessary
 
     for step_probs in probs[1:]:
         new_texts = {}
@@ -238,13 +279,13 @@ def beam_search(probs, n=3):
             new_texts = add_step_to_trail(new_texts, text, trail_probs, step_probs)
 
         # find the n entries with the highest probability
-        texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[-n:])  # TODO: is the best in the 0 or last position?
+        texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[
+                     -n:])  # TODO: is the best in the 0 or last position?
 
     return list(texts.keys())
 
 
 def add_step_to_trail(texts, trail, prob, step_probs):
-
     for (char, char_prob) in enumerate(step_probs):
 
         # new char is the same as the last char in trail
@@ -263,9 +304,9 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
         # any other chars
         else:
-           if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
+            if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
 
-           texts[trail + (char,)][0] += prob[0] * char_prob + prob[1] * char_prob
+            texts[trail + (char,)][0] += prob[0] * char_prob + prob[1] * char_prob
 
     return texts
 
@@ -291,23 +332,7 @@ def canonicalize(trail: str):
 """
 
 
-@dataclass
-class ClassifierArgs:
-    """
-    This dataclass defines a training configuration.
-    feel free to add/change it as you see fit, do NOT remove the following fields as we will use
-    them in test time.
-    If you add additional values to your training configuration please add them in here with
-    default values (so run won't break when we test this).
-    """
-    # we will use this to give an absolute path to the data, make sure you read the data using this argument.
-    # you may assume the train data is the same
-    training_path: str = "./an4/train/an4/"
-    val_path: str = "./an4/val/an4/"
-    path_to_test_data_dir: str = "./an4/test/an4/"
 
-    kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 8
 
 
 class EarlyStopper:
