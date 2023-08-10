@@ -7,9 +7,10 @@ index2char, char2index = utils.create_index(['@'])
 
 # basic CNN version
 
-class CharacterDetectionNet_1(nn.Module):
+class CharNet_1(nn.Module):
     def __init__(self, classifierArgs):
         super().__init__()
+        self.name = 'CharNet1'
         self.flatten = nn.Flatten(start_dim=1, end_dim=2)
         conv_kernels = classifierArgs.kernels_per_layer
         self.conv0 = nn.Conv2d(1, conv_kernels[0], 3, padding=1)
@@ -46,9 +47,11 @@ class CharacterDetectionNet_1(nn.Module):
 
 # CNN version with batch normalization
 
-class CharacterDetectionNet_1_batch_normed(nn.Module):
+class CharNet_1_BN(nn.Module):
     def __init__(self, classifierArgs):
         super().__init__()
+        self.name = "CharNet1_BN"
+
         self.flatten = nn.Flatten(start_dim=1, end_dim=2)
         conv_kernels = classifierArgs.kernels_per_layer
         self.conv0 = nn.Conv2d(1, conv_kernels[0], 3, padding=1)
