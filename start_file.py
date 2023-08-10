@@ -187,7 +187,6 @@ def dataloader_score(loss_function, net, data_loader):
 
 
 def get_wer_loss(output, target_text):
-
     # convert output to (batch_size, time_slices, characters)
     output = output.permute(1, 0, 2)
 
