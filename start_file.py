@@ -155,7 +155,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
-        break
+        # break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i
@@ -199,7 +199,7 @@ def get_wer_loss(output, target_text):
         n_sentences = beam_search(probs, n=3)
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
-        best_sentence = best_sentence.replace('@', '')
+        best_sentence = best_sentence.replace('@', '').replace('<blank>', '')
 
         curr_reference = ''.join([index2char[c] for c in target_text[i]])
         curr_reference = curr_reference.replace('@', '')
