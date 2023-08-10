@@ -55,7 +55,7 @@ class CustomASRDataset(Dataset):
             label = label_file.read().strip()
 
         # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
-        spectrogram = self.audio_data[idx]
+        spectrogram = self.audio_data[idx] + torch.rand(size=self.audio_data[idx].shape)
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
@@ -78,6 +78,9 @@ def custom_collate_fn(batch):
 def main():
     # define the network
     # net = CharacterDetectionNet_1(ClassifierArgs())
+    # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
+    #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
+
     net = CharacterDetectionNet_1_batch_normed(ClassifierArgs())
 
     # Define the CTC loss
@@ -155,7 +158,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
-        # break
+        break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i
@@ -206,7 +209,7 @@ def get_wer_loss(output, target_text):
         # calc wer loss
         wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
         wer_losses_sum += wer_loss
-    
+
     return wer_losses_sum / (i+1)
 
 
@@ -217,7 +220,7 @@ def beam_search(probs, n=3):
     # convert log_softmax to regular softmax, so that we can add and multiple normally
     probs = torch.exp(probs)
     probs = probs.detach().numpy()
-    
+
     texts = {}
 
     # initialize dictionary with the first time slice
@@ -230,10 +233,10 @@ def beam_search(probs, n=3):
 
     for step_probs in probs[1:]:
         new_texts = {}
-        
+
         for text, trail_probs in texts.items():
             new_texts = add_step_to_trail(new_texts, text, trail_probs, step_probs)
-            
+
         # find the n entries with the highest probability
         texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[-n:])  # TODO: is the best in the 0 or last position?
 
@@ -243,7 +246,7 @@ def beam_search(probs, n=3):
 def add_step_to_trail(texts, trail, prob, step_probs):
 
     for (char, char_prob) in enumerate(step_probs):
-        
+
         # new char is the same as the last char in trail
         if char == trail[-1]:
             if not trail in texts: texts[trail] = [0, 0]
@@ -251,7 +254,7 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
             texts[trail][0] += prob[0] * char_prob
             texts[trail + (char,)][1] += prob[1] * char_prob
-            
+
         # new char is epsilon
         elif char == 0:
             if not trail in texts: texts[trail] = [0, 0]
@@ -285,7 +288,7 @@ def canonicalize(trail: str):
             trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
     
     return trail
-""" 
+"""
 
 
 @dataclass
