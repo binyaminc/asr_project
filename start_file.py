@@ -227,8 +227,7 @@ def beam_search(probs, n=3):
         
         for text, trail_probs in texts.items():  # trails = [P(trail), P(trail + e)]
 
-            new_texts = add_step_to_trail(new_texts, text, trail_probs[0], step_probs)
-            new_texts = add_step_to_trail(new_texts, text + '0', trail_probs[1], step_probs)
+            new_texts = add_step_to_trail(new_texts, text, trail_probs, step_probs)
             
             # TODO: 1. find the 3 entries with the highest probability
             #       2. find the prefixes of those, only 3 steps back
@@ -239,15 +238,33 @@ def beam_search(probs, n=3):
 
 def add_step_to_trail(texts, trail, prob, step_probs):
 
-    for (char, char_prob) in step_probs:
-        new_trail = canonicalize(trail + str(char))
-        new_prob = prob * char_prob
+    for (char, char_prob) in enumerate(step_probs):
+        char = str(char)
 
-        # will be continued...
+        # new char is the same as the last char in trail
+        if char == trail[-1]:
+            if not trail in texts: texts[trail] = [0, 0]
+            if not trail + char in texts: texts[trail + char] = [0, 0]
 
-    return 0
+            texts[trail][0] += prob[0] * char_prob
+            texts[trail + char][1] += prob[1] * char_prob
+            
+        # new char is epsilon
+        elif char == '0':
+            if not trail in texts: texts[trail] = [0, 0]
+
+            texts[trail][1] += prob[0] * char_prob + prob[1] * char_prob
+
+        # any other chars
+        else:
+           if not trail + char in texts: texts[trail + char] = [0, 0]
+
+           texts[trail + char][0] += prob[0] * char_prob + prob[1] * char_prob
+
+    return texts
 
 
+"""
 def canonicalize(trail: str):
     '''
     converts output trail of the NN to readable text.
@@ -265,7 +282,7 @@ def canonicalize(trail: str):
             trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
     
     return trail
-    
+""" 
 
 
 @dataclass
