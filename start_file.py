@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-# from jiwer import wer
+from jiwer import wer
 import os
 import matplotlib.pyplot as plt
 
@@ -103,7 +103,7 @@ def main():
         train_CTC_loss, train_WER_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
         train_CTC_losses.append(train_CTC_loss)
         train_WER_losses.append(train_WER_loss)
-        print(f"epoch {epoch}: loss = {train_CTC_losses[-1]}")
+        print(f"epoch {epoch}: ctc loss = {train_CTC_loss}, wer loss = {train_WER_loss}")
 
         val_CTC_loss, val_WER_loss = dataloader_score(ctc_loss, net, validation_loader)
         val_CTC_losses.append(val_CTC_loss)
@@ -191,75 +191,79 @@ def get_wer_loss(output, target_text):
     # convert output to (batch_size, time_slices, characters)
     output = output.permute(1, 0, 2)
 
-    wer_losses_sum = []
+    wer_losses_sum = 0
+
+    target_text = target_text.detach().numpy()
 
     for (i, probs) in enumerate(output):
-        sentences = beam_search(probs, n=3)
-        best_sentence = sentences[0]
-        
-        # TODO: use WER library to calc wer loss, in comparison with target_text
-        #wer_loss = some_comparison(best_sentence, target_text[i])
-        wer_loss = 0
-        wer_losses_sum.append(wer_loss)
+        n_sentences = beam_search(probs, n=3)
+        best_sentence = n_sentences[-1]
+        best_sentence = ''.join([index2char[c] for c in best_sentence])
+        best_sentence = best_sentence.replace('@', '')
+
+        curr_reference = ''.join([index2char[c] for c in target_text[i]])
+        curr_reference = curr_reference.replace('@', '')
+
+        # calc wer loss
+        wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
+        wer_losses_sum += wer_loss
     
-    return wer_losses_sum / i
+    return wer_losses_sum / (i+1)
 
 
 def beam_search(probs, n=3):
     """
     n - beam width, the amount of trails I follow in each step.
     """
+    # convert log_softmax to regular softmax, so that we can add and multiple normally
+    probs = torch.exp(probs)
     probs = probs.detach().numpy()
-    # TODO: convert log_softmax to regular softmax, so that we can add and multiple normally
+    
     texts = {}
 
     # initialize dictionary with the first time slice
     step0_probs = probs[0]
     biggest_idxes = sorted(range(len(step0_probs)), key = lambda p: step0_probs[p])[-n:]  # TODO: could be more efficient
     for idx in biggest_idxes:
-        texts[str(idx)] = [step0_probs[idx], 0]  # example: texts['a'] = [P('a'), P('a<e>')=0]
-    if '0' in texts:
-        texts['0'] = [0, texts['0'][0]] # TODO: not sure is necessary
+        texts[(idx,)] = [step0_probs[idx], 0]  # example: texts[[a]] = [P([a]), P([a, <e>])=0]
+    if (0,) in texts:
+        texts[(0,)] = [0, texts[(0,)][0]] # TODO: not sure is necessary
 
     for step_probs in probs[1:]:
         new_texts = {}
-        biggest_idxes = sorted(range(len(step_probs)), key = lambda p: step_probs[p])[-n:]
         
-        for text, trail_probs in texts.items():  # trails = [P(trail), P(trail + e)]
-
+        for text, trail_probs in texts.items():
             new_texts = add_step_to_trail(new_texts, text, trail_probs, step_probs)
             
-            # TODO: 1. find the 3 entries with the highest probability
-            #       2. find the prefixes of those, only 3 steps back
-            #       3. save only 3 best and prefixes, throw others.  
+        # find the n entries with the highest probability
+        texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[-n:])  # TODO: is the best in the 0 or last position?
 
-    return 0
+    return list(texts.keys())
 
 
 def add_step_to_trail(texts, trail, prob, step_probs):
 
     for (char, char_prob) in enumerate(step_probs):
-        char = str(char)
-
+        
         # new char is the same as the last char in trail
         if char == trail[-1]:
             if not trail in texts: texts[trail] = [0, 0]
-            if not trail + char in texts: texts[trail + char] = [0, 0]
+            if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
 
             texts[trail][0] += prob[0] * char_prob
-            texts[trail + char][1] += prob[1] * char_prob
+            texts[trail + (char,)][1] += prob[1] * char_prob
             
         # new char is epsilon
-        elif char == '0':
+        elif char == 0:
             if not trail in texts: texts[trail] = [0, 0]
 
             texts[trail][1] += prob[0] * char_prob + prob[1] * char_prob
 
         # any other chars
         else:
-           if not trail + char in texts: texts[trail + char] = [0, 0]
+           if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
 
-           texts[trail + char][0] += prob[0] * char_prob + prob[1] * char_prob
+           texts[trail + (char,)][0] += prob[0] * char_prob + prob[1] * char_prob
 
     return texts
 
