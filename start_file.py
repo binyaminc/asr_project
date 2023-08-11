@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-# from jiwer import wer
+from jiwer import wer, cer
 import os
 import matplotlib.pyplot as plt
 
@@ -13,7 +13,7 @@ from networks import *
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 30
+epochs = 2
 DATASET_STATES = ['WAVEFORM', 'MFC', 'MFCC']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -35,7 +35,7 @@ class ClassifierArgs:
     test_path: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 8
+    batch_size = 16
     save_model = False
 
 
@@ -100,7 +100,9 @@ def main():
     # net = CharacterDetectionNet_1(ClassifierArgs())
     # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
     #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
-    data_state = DATASET_STATES[0]
+    print(f"device: {device}")
+
+    data_state = DATASET_STATES[1]
     net = CharNet_1(ClassifierArgs())
 
     # Define the CTC loss
@@ -118,39 +120,53 @@ def main():
     # Set up the training loop
     optimizer = optim.Adam(net.parameters(), lr=0.0005)
 
-    train_CTC_losses, val_CTC_losses, test_CTC_losses = [], [], []
-    train_WER_losses, val_WER_losses, test_WER_losses = [], [], []
+    train_ctc_losses, val_ctc_losses, test_ctc_losses = [], [], []
+    train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
+    train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
     early_stopper = EarlyStopper(patience=1, min_delta=5)
 
     net.to(device)
     for epoch in np.arange(epochs):
-        train_CTC_loss, train_WER_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
-        train_CTC_losses.append(train_CTC_loss)
-        train_WER_losses.append(train_WER_loss)
-        print(f"epoch {epoch}: ctc loss = {train_CTC_loss}, wer loss = {train_WER_loss}")
+        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
+        train_ctc_losses.append(train_ctc_loss)
+        train_wer_losses.append(train_wer_loss)
+        train_cer_losses.append(train_cer_loss)
+        
+        val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss, net, validation_loader)
+        val_ctc_losses.append(val_ctc_loss)
+        val_wer_losses.append(val_wer_loss)
+        val_cer_losses.append(val_cer_loss)
 
-        val_CTC_loss, val_WER_loss = dataloader_score(ctc_loss, net, validation_loader)
-        val_CTC_losses.append(val_CTC_loss)
-        val_WER_losses.append(val_WER_loss)
+        print(f"epoch {epoch}: ctc loss = {round(train_ctc_loss, 6)}, wer loss = {round(train_wer_loss, 6)}, val ctc = {round(val_ctc_loss, 6)}, val wer = {round(val_wer_loss, 6)}")
 
-        test_CTC_loss, test_WER_loss = dataloader_score(ctc_loss, net, test_loader)
-        test_CTC_losses.append(test_CTC_loss)
-        test_WER_losses.append(test_WER_loss)
+        test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
+        test_ctc_losses.append(test_ctc_loss)
+        test_wer_losses.append(test_wer_loss)
+        test_cer_losses.append(test_cer_loss)
 
-        if (early_stopper.early_stop(val_CTC_loss) or epoch == epochs - 1) and ClassifierArgs.save_model:
+        if (early_stopper.early_stop(val_ctc_loss) or epoch == epochs - 1) and ClassifierArgs.save_model:
             torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
             break
 
     # can be shortened to a loop, later on.
     plot_name = f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_CTC_losses, val_CTC_losses, test_CTC_losses],
+            data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
+    plt.clf()
+    plt.cla()
 
     plot_name = f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_WER_losses, val_WER_losses, test_WER_losses],
+            data=[train_wer_losses, val_wer_losses, test_wer_losses],
+            data_labels=['training loss', 'val loss', 'test loss'])
+    plt.clf()
+    plt.cla()
+
+    plot_name = f'{net.name} {data_state} cer'
+    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+            data=[train_cer_losses, val_cer_losses, test_cer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
 
 
@@ -166,7 +182,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
 
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
-    sum_ctc_loss, sum_wer_loss = 0, 0
+    sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
 
     torch.enable_grad()
@@ -187,10 +203,9 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        # wer loss
-        # wer_loss = get_wer_loss(output, target_text)
-        sum_wer_loss = 0
-        # sum_wer_loss += wer_loss
+        wer_loss, cer_loss = get_er_loss(output, target_text)
+        sum_wer_loss += wer_loss
+        sum_cer_loss += cer_loss
 
         # Backward pass and optimization
         ctc_loss.backward()
@@ -199,11 +214,11 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         i += 1
 
     torch.cuda.empty_cache()
-    return sum_ctc_loss / i, sum_wer_loss / i
+    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
 
 def dataloader_score(loss_function, net, data_loader):
-    sum_ctc_loss, sum_wer_loss = 0, 0
+    sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
@@ -219,20 +234,20 @@ def dataloader_score(loss_function, net, data_loader):
             # compute ctc loss
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
-            # compute wer loss
-            # wer_loss = get_wer_loss(output, target_text)  # target_lengths?
-            # sum_wer_loss += wer_loss
+            # compute er loss
+            wer_loss, cer_loss = get_er_loss(output, target_text)
+            sum_wer_loss += wer_loss
+            sum_cer_loss += cer_loss
             i += 1
-            sum_wer_loss = 0
 
-    return sum_ctc_loss / i, sum_wer_loss / i
+    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
 
-def get_wer_loss(output, target_text):
+def get_er_loss(output, target_text):
     # convert output to (batch_size, time_slices, characters)
     output = output.permute(1, 0, 2)
 
-    wer_losses_sum = 0
+    wer_losses_sum, cer_losses_sum = 0, 0
 
     target_text = target_text.detach().numpy()
     k = 0
@@ -245,13 +260,18 @@ def get_wer_loss(output, target_text):
         curr_reference = ''.join([index2char[c] for c in target_text[i]])
         curr_reference = curr_reference.replace('@', '')
 
-        # calc wer loss
-        # wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
-        wer_loss = 0
+        # calc wer and cer loss
+        wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
+        cer_loss = cer(reference=curr_reference, hypothesis=best_sentence)
+
+        # wer_loss, cer_loss = 0, 0
         wer_losses_sum += wer_loss
+        cer_losses_sum += cer_loss
+
+        k+=1
         i = k
 
-    return wer_losses_sum / (k)
+    return wer_losses_sum / (k), cer_losses_sum / (k)
 
 
 def beam_search(probs, n=3):
@@ -260,7 +280,7 @@ def beam_search(probs, n=3):
     """
     # convert log_softmax to regular softmax, so that we can add and multiple normally
     probs = torch.exp(probs)
-    probs = probs.detach().numpy()
+    probs = probs.detach().cpu().numpy()
 
     texts = {}
 
