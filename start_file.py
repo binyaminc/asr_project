@@ -4,12 +4,13 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-# from jiwer import wer, cer
+from jiwer import wer, cer
 import os
 import matplotlib.pyplot as plt
 from networks import index2char, char2index
 from networks import *
 import utils
+# from torchaudio.models.decoder import cuda_ctc_decoder
 
 train_path = r'an4\\train\\an4\\'
 DATASET_STATES = ['WAVEFORM', 'MFC', 'MFCC']
@@ -126,7 +127,7 @@ def main():
     train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
     train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
-    early_stopper = EarlyStopper(patience=1, min_delta=5)
+    early_stopper = EarlyStopper(patience=1, min_delta=0.1)
 
     net.to(device)
     for epoch in np.arange(ClassifierArgs.epochs):
@@ -141,14 +142,14 @@ def main():
         val_cer_losses.append(val_cer_loss)
 
         print(
-            f"epoch {epoch}: ctc loss = {round(train_ctc_loss, 6)}, wer loss = {round(train_wer_loss, 6)}, val ctc = {round(val_ctc_loss, 6)}, val wer = {round(val_wer_loss, 6)}")
+            f"epoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
 
         test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
         test_ctc_losses.append(test_ctc_loss)
         test_wer_losses.append(test_wer_loss)
         test_cer_losses.append(test_cer_loss)
 
-        if (early_stopper.early_stop(val_ctc_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
+        if (early_stopper.early_stop(test_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
             torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
             break
 
@@ -206,7 +207,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        wer_loss, cer_loss = 0, 0
+        wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
         sum_wer_loss += wer_loss
         sum_cer_loss += cer_loss
 
@@ -215,10 +216,15 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
-        break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
+
+# Create an instance of the CUCTCDecoder class
+# decoder = cuda_ctc_decoder(alphabet, nbest=1, beam_size=10)
+
+# Compute the output of the model
+# decoded = decoder(probability_matrix)
 
 
 def dataloader_score(loss_function, net, data_loader):
@@ -239,7 +245,7 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            wer_loss, cer_loss = 0, 0
+            wer_loss, cer_loss = get_er_loss(output, target_text)
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
@@ -257,6 +263,7 @@ def get_er_loss(output, target_text):
     k = 0
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
+        
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
         best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
@@ -265,8 +272,8 @@ def get_er_loss(output, target_text):
         curr_reference = curr_reference.replace('@', '')
 
         # calc wer and cer loss
-        wer_loss = 0
-        cer_loss = 0
+        wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
+        cer_loss = cer(reference=curr_reference, hypothesis=best_sentence)
 
         # wer_loss, cer_loss = 0, 0
         wer_losses_sum += wer_loss

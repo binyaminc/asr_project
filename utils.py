@@ -95,6 +95,11 @@ def load_wav_files(paths, state='MFC'):
     for file_path in file_list:
         if not file_path.endswith('.wav'): continue
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
+        
+        # adding noise
+        noise = np.random.normal(0, 1, data.size())
+        data = data + noise
+
         if state == 'MFCC':
             data = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=128)
         if state == 'MFC':
