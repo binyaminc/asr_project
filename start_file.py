@@ -4,16 +4,14 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader, Dataset
-from jiwer import wer, cer
+# from jiwer import wer, cer
 import os
 import matplotlib.pyplot as plt
-
 from networks import index2char, char2index
 from networks import *
 import utils
 
 train_path = r'an4\\train\\an4\\'
-epochs = 2
 DATASET_STATES = ['WAVEFORM', 'MFC', 'MFCC']
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -35,8 +33,9 @@ class ClassifierArgs:
     test_path: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 16
-    save_model = False
+    batch_size = 32
+    epochs = 50
+    save_model = True
 
 
 def hash_label(label: str):
@@ -44,7 +43,7 @@ def hash_label(label: str):
 
 
 class CustomASRDataset(Dataset):
-    def __init__(self, audio_dir, label_dir, frame_length, input_type='MFC'):
+    def __init__(self, audio_dir, label_dir, frame_length, input_type='MFC', is_training=True):
         # as input type defines the pre processing of the data.
         assert input_type in DATASET_STATES
         self.audio_dir = audio_dir
@@ -62,6 +61,7 @@ class CustomASRDataset(Dataset):
                 label = label_file.read().strip()
                 if len(label) > maxl: maxl = len(label)
         self.max_len_label = maxl
+        self.is_training = is_training
 
     def __len__(self):
         return len(self.file_list)
@@ -75,7 +75,7 @@ class CustomASRDataset(Dataset):
             label = label_file.read().strip()
 
         # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
-        spectrogram = self.audio_data[idx] + torch.rand(size=self.audio_data[idx].shape)
+        spectrogram = self.audio_data[idx]
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
         # goal is to return this: spectrogram, target_text, spectrogram_lengths, target_lengths
@@ -111,10 +111,12 @@ def main():
     training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, data_state)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
+                                          data_state)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, data_state)
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
+                                    data_state)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
@@ -127,25 +129,26 @@ def main():
     early_stopper = EarlyStopper(patience=1, min_delta=5)
 
     net.to(device)
-    for epoch in np.arange(epochs):
+    for epoch in np.arange(ClassifierArgs.epochs):
         train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
         train_cer_losses.append(train_cer_loss)
-        
+
         val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss, net, validation_loader)
         val_ctc_losses.append(val_ctc_loss)
         val_wer_losses.append(val_wer_loss)
         val_cer_losses.append(val_cer_loss)
 
-        print(f"epoch {epoch}: ctc loss = {round(train_ctc_loss, 6)}, wer loss = {round(train_wer_loss, 6)}, val ctc = {round(val_ctc_loss, 6)}, val wer = {round(val_wer_loss, 6)}")
+        print(
+            f"epoch {epoch}: ctc loss = {round(train_ctc_loss, 6)}, wer loss = {round(train_wer_loss, 6)}, val ctc = {round(val_ctc_loss, 6)}, val wer = {round(val_wer_loss, 6)}")
 
         test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
         test_ctc_losses.append(test_ctc_loss)
         test_wer_losses.append(test_wer_loss)
         test_cer_losses.append(test_cer_loss)
 
-        if (early_stopper.early_stop(val_ctc_loss) or epoch == epochs - 1) and ClassifierArgs.save_model:
+        if (early_stopper.early_stop(val_ctc_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
             torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
             break
 
@@ -203,7 +206,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        wer_loss, cer_loss = get_er_loss(output, target_text)
+        wer_loss, cer_loss = 0, 0
         sum_wer_loss += wer_loss
         sum_cer_loss += cer_loss
 
@@ -212,6 +215,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
+        break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
@@ -235,7 +239,7 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            wer_loss, cer_loss = get_er_loss(output, target_text)
+            wer_loss, cer_loss = 0, 0
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
@@ -261,14 +265,14 @@ def get_er_loss(output, target_text):
         curr_reference = curr_reference.replace('@', '')
 
         # calc wer and cer loss
-        wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
-        cer_loss = cer(reference=curr_reference, hypothesis=best_sentence)
+        wer_loss = 0
+        cer_loss = 0
 
         # wer_loss, cer_loss = 0, 0
         wer_losses_sum += wer_loss
         cer_losses_sum += cer_loss
 
-        k+=1
+        k += 1
         i = k
 
     return wer_losses_sum / (k), cer_losses_sum / (k)
@@ -331,30 +335,6 @@ def add_step_to_trail(texts, trail, prob, step_probs):
     return texts
 
 
-"""
-def canonicalize(trail: str):
-    '''
-    converts output trail of the NN to readable text.
-    example: trail = 'aa<e>b<e>b<e>' (when <e> is epsilon)
-             output = 'abb<e>'
-    '''
-    # going in reversed order to delete doubles
-    for i in range(len(trail) - 1, 0, -1):  
-        if trail[i] == trail[i - 1]:
-            trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
-
-    # going in reversed order to delete epsilon, except for the last epsilon (if exists)
-    for i in range(len(trail) - 2, -1, -1):
-        if trail[i] == '0': 
-            trail = trail[:i] + trail[i + 1:]  # trail.pop(i)
-    
-    return trail
-"""
-
-
-
-
-
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0):
         self.patience = patience
@@ -373,8 +353,25 @@ class EarlyStopper:
         return False
 
 
+def checkplot():
+    net = CharNet_1(ClassifierArgs())
+    net.load_state_dict(torch.load(r'C:\work\projects\asr_project\saved_models\CharNet1_MFC_epoch_49.pt'))
+
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+
+    for specs, target_text, spectrogram_lengths, target_lengths in training_loader:  # Use correct variable name
+        specs = specs.unsqueeze(dim=1)
+        with torch.no_grad():  # Correct the usage of torch.no_grad()
+            out = net(specs)  # Pass the correct input (specs) to the model
+            utils.plot_CTC_output(out[:, 0, :])  # Assuming you have a function to plot CTC outputs
+        break
+
+
 if __name__ == '__main__':
     main()
+    # checkplot()
+
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(device)
 

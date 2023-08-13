@@ -13,12 +13,12 @@ import string
 
 def create_index(additional_letters: list):
     alphabet = ['<BLANK>', ' '] + list(string.ascii_lowercase) + additional_letters
-    index_letter_pairing = dict()
-    letter_index_pairing = dict()
+    index2letter = dict()
+    letter2index = dict()
     for i, l in enumerate(alphabet):
-        index_letter_pairing[i] = l
-        letter_index_pairing[l] = i
-    return index_letter_pairing, letter_index_pairing
+        index2letter[i] = l
+        letter2index[l] = i
+    return index2letter, letter2index
 
 
 def extract_mfcc(audio_data: torch.Tensor) -> torch.Tensor:
@@ -102,7 +102,7 @@ def load_wav_files(paths, state='MFC'):
         elif state == 'WAVEFORM':
             # Calculate the starting indices of each chunk
             start_indices = np.arange(0, len(data), chunk_size - overlap)
-            data = np.pad(data, data//2024)
+            data = np.pad(data, data // 2024)
             # Split the array into chunks using the calculated indices
             data = np.array([data[i:i + chunk_size] for i in start_indices])
         # else:
@@ -152,6 +152,7 @@ class EarlyStopper:
                 return True
         return False
 
+
 # def k_beam(batch: int, probability_tensor: tensor, index: dict):
 #     """
 #     batch: the size of the
@@ -163,3 +164,17 @@ class EarlyStopper:
 #
 #     # init starting values:
 #     pass
+
+def plot_CTC_output(p_matrix: torch.tensor):
+    # of save (T, len(probability))
+    p_matrix = np.array(p_matrix)
+    itos, _ = create_index([])
+
+    plt.figure(figsize=(4, 24))
+    plt.imshow(p_matrix, cmap='Blues')
+    for i in range(p_matrix.shape[0]):
+        for j in range(p_matrix.shape[1]):
+            plt.text(i, j, itos[j], ha='center', va='bottom', color='gray')
+            # plt.text(j, i, p_matrix[i,j], ha='center', va='top', color='gray')
+    plt.axis('off')
+    plt.imshow()
