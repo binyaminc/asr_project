@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from networks import index2char, char2index
 from networks import *
 import utils
+from tqdm import tqdm
 # from torchaudio.models.decoder import cuda_ctc_decoder
 
 train_path = r'an4\\train\\an4\\'
@@ -127,10 +128,12 @@ def main():
     train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
     train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
-    early_stopper = EarlyStopper(patience=1, min_delta=0.1)
+    early_stopper = EarlyStopper(patience=1, min_delta=0.005)
+
+    print("data loaded. start training")
 
     net.to(device)
-    for epoch in np.arange(ClassifierArgs.epochs):
+    for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
         train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
