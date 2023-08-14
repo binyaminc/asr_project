@@ -36,7 +36,7 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 100
+    epochs = 150
     save_model = True
 
 
@@ -104,6 +104,22 @@ def main():
     #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
     print(f"device: {device}")
 
+    # with open('D:\\audio_project\\asr_project\\results_basic.txt', 'r') as file:
+    #     train_cer_losses, val_cer_losses = [], []
+    #     for line in file: 
+    #         splitted = line.split()
+    #         train_cer_losses.append(float(splitted[7][:-1]))
+    #         val_cer_losses.append(float(splitted[13]))
+
+    #     train_cer_losses = [c if c<=1 else 1 for c in train_cer_losses]
+    #     val_cer_losses = [c if c<=1 else 1 for c in val_cer_losses]
+
+    #     plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
+    #     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+    #         data=[train_cer_losses, val_cer_losses],
+    #         data_labels=['training loss', 'val loss'])
+
+
     data_state = DATASET_STATES[1]
     net = CharNet_1(ClassifierArgs())
 
@@ -111,15 +127,15 @@ def main():
     ctc_loss = nn.CTCLoss()
 
     training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state)
-    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
                                           data_state)
-    validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
                                     data_state)
-    test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     # Set up the training loop
     # optimizer = optim.Adam(net.parameters(), lr=0.0005)
@@ -149,42 +165,43 @@ def main():
         print(
             f"\nepoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
 
-        test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
-        test_ctc_losses.append(test_ctc_loss)
-        test_wer_losses.append(test_wer_loss)
-        test_cer_losses.append(test_cer_loss)
+        # test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
+        # test_ctc_losses.append(test_ctc_loss)
+        # test_wer_losses.append(test_wer_loss)
+        # test_cer_losses.append(test_cer_loss)
 
-        if (early_stopper.early_stop(test_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
+        if (early_stopper.early_stop(val_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
             torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
             if epoch != ClassifierArgs.epochs - 1:
                 print("exit early")
             break
 
     # aligning w/cer to be maximum 1
-    train_wer_loss = [w if w<=1 else 1 for w in train_wer_loss]
-    train_cer_loss = [c if c<=1 else 1 for c in train_cer_loss]
-    val_wer_loss = [w if w<=1 else 1 for w in val_wer_loss]
-    val_cer_loss = [c if c<=1 else 1 for c in val_cer_loss]
+    train_wer_losses = [w if w<=1 else 1 for w in train_wer_losses]
+    train_cer_losses = [c if c<=1 else 1 for c in train_cer_losses]
+    val_wer_losses = [w if w<=1 else 1 for w in val_wer_losses]
+    val_cer_losses = [c if c<=1 else 1 for c in val_cer_losses]
 
     # can be shortened to a loop, later on.
     plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
+            data=[train_ctc_losses, val_ctc_losses],
+            data_labels=['training loss', 'val loss'])
     plt.clf()
     plt.cla()
 
     plot_name = 'wer loss'  # f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_wer_losses, val_wer_losses, test_wer_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
+            data=[train_wer_losses, val_wer_losses],
+            data_labels=['training loss', 'val loss'])
     plt.clf()
     plt.cla()
 
+    
     plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_cer_losses, val_cer_losses, test_cer_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
+            data=[train_cer_losses, val_cer_losses],
+            data_labels=['training loss', 'val loss'])
 
 
 def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
@@ -383,7 +400,7 @@ class EarlyStopper:
 
 def checkplot():
     net = CharNet_1(ClassifierArgs())
-    net.load_state_dict(torch.load(r'C:\work\projects\asr_project\saved_models\CharNet1_MFC_epoch_49.pt'))
+    net.load_state_dict(torch.load(r'C:\work\projects\asr_project\saved_models\CharNet1_MFC_epoch_99.pt'))
 
     training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
