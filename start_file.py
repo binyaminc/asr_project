@@ -37,8 +37,8 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 100
-    save_model = True
+    epochs = 2
+    save_model = False
 
 
 def hash_label(label: str):
@@ -111,7 +111,8 @@ def main():
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state, is_training=True)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state,
+                                        is_training=True)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
@@ -130,14 +131,14 @@ def main():
     train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
     train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
-    # early_stopper = EarlyStopper(patience=1, min_delta=0.005)
-    early_stopper = EarlyStopper(patience=1, min_delta=50)
+    early_stopper = EarlyStopper(patience=1, min_delta=0.05)
 
     print("data loaded. start training")
 
     net.to(device)
     for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader, is_training=True)
+        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader,
+                                                                         is_training=True)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
         train_cer_losses.append(train_cer_loss)
@@ -163,27 +164,27 @@ def main():
             break
 
     # aligning w/cer to be maximum 1
-    train_wer_loss = [w if w<=1 else 1 for w in train_wer_losses]
-    train_cer_loss = [c if c<=1 else 1 for c in train_cer_losses]
-    val_wer_loss = [w if w<=1 else 1 for w in val_wer_losses]
-    val_cer_loss = [c if c<=1 else 1 for c in val_cer_losses]
+    train_wer_loss = [w if w <= 1 else 1 for w in train_wer_losses]
+    train_cer_loss = [c if c <= 1 else 1 for c in train_cer_losses]
+    val_wer_loss = [w if w <= 1 else 1 for w in val_wer_losses]
+    val_cer_loss = [c if c <= 1 else 1 for c in val_cer_losses]
 
     # can be shortened to a loop, later on.
-    plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
+    plot_name = f'ctc loss (min validation {min(train_ctc_losses):%.5f}'  # f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = 'wer loss'  # f'{net.name} {data_state} wer'
+    plot_name = f'wer loss (min test {min(test_wer_losses):%.5f}'  # f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses, test_wer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
+    plot_name = f'cer loss (min test {min(test_cer_losses):%.5f})'  # f'{net.name} {data_state} cer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_cer_losses, val_cer_losses, test_cer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
@@ -278,7 +279,7 @@ def get_er_loss(output, target_text):
     k = 0
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
-        
+
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
         best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
@@ -358,7 +359,7 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
 
 class EarlyStopper:
-    def __init__(self, patience=1, min_delta=0):
+    def __init__(self, patience=1, min_delta=0.0):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
