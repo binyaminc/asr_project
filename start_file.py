@@ -36,7 +36,7 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 50
+    epochs = 100
     save_model = True
 
 
@@ -160,22 +160,28 @@ def main():
                 print("exit early")
             break
 
+    # aligning w/cer to be maximum 1
+    train_wer_loss = [w if w<=1 else 1 for w in train_wer_loss]
+    train_cer_loss = [c if c<=1 else 1 for c in train_cer_loss]
+    val_wer_loss = [w if w<=1 else 1 for w in val_wer_loss]
+    val_cer_loss = [c if c<=1 else 1 for c in val_cer_loss]
+
     # can be shortened to a loop, later on.
-    plot_name = f'{net.name}_{data_state}_ctc'
+    plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = f'{net.name} {data_state} wer'
+    plot_name = 'wer loss'  # f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses, test_wer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = f'{net.name} {data_state} cer'
+    plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_cer_losses, val_cer_losses, test_cer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
@@ -189,6 +195,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.ylabel(y_axis_label)
     plt.xlabel(x_axis_label)
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
+    plt.title(plot_name)
     plt.savefig(f'plots/{plot_name}.jpeg')
 
 
