@@ -95,7 +95,7 @@ def load_wav_files(paths, state='MFC', train=False):
     for file_path in file_list:
         if not file_path.endswith('.wav'): continue
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
-
+        
         # adding noise
         if train:
             data = data + np.random.normal(0, 1, data.shape).astype(np.float32)

@@ -37,7 +37,7 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 50
+    epochs = 100
     save_model = True
 
 
@@ -64,6 +64,7 @@ class CustomASRDataset(Dataset):
                 label = label_file.read().strip()
                 if len(label) > maxl: maxl = len(label)
         self.max_len_label = maxl
+        self.is_training = is_training
 
     def __len__(self):
         return len(self.file_list)
@@ -136,7 +137,7 @@ def main():
 
     net.to(device)
     for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
+        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader, is_training=True)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
         train_cer_losses.append(train_cer_loss)
@@ -161,22 +162,28 @@ def main():
                 print("exit early")
             break
 
+    # aligning w/cer to be maximum 1
+    train_wer_loss = [w if w<=1 else 1 for w in train_wer_losses]
+    train_cer_loss = [c if c<=1 else 1 for c in train_cer_losses]
+    val_wer_loss = [w if w<=1 else 1 for w in val_wer_losses]
+    val_cer_loss = [c if c<=1 else 1 for c in val_cer_losses]
+
     # can be shortened to a loop, later on.
-    plot_name = f'{net.name}_{data_state}_ctc'
+    plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = f'{net.name} {data_state} wer'
+    plot_name = 'wer loss'  # f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses, test_wer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = f'{net.name} {data_state} cer'
+    plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_cer_losses, val_cer_losses, test_cer_losses],
             data_labels=['training loss', 'val loss', 'test loss'])
@@ -190,10 +197,11 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.ylabel(y_axis_label)
     plt.xlabel(x_axis_label)
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
+    plt.title(plot_name)
     plt.savefig(f'plots/{plot_name}.jpeg')
 
 
-def train_one_epoch(loss_function, net, optimizer, training_data_loader):
+def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_training=False):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
     is_first_batch = True
@@ -216,7 +224,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        if is_first_batch:
+        if is_first_batch and is_training:
             wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
             is_first_batch = False
         sum_wer_loss += wer_loss
@@ -252,9 +260,7 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            if is_first_batch:
-                wer_loss, cer_loss = get_er_loss(output, target_text)
-                is_first_batch = False
+            wer_loss, cer_loss = get_er_loss(output, target_text)
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
@@ -272,7 +278,7 @@ def get_er_loss(output, target_text):
     k = 0
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
-
+        
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
         best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
