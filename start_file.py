@@ -122,13 +122,15 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     # Set up the training loop
-    optimizer = optim.Adam(net.parameters(), lr=0.0005)
+    # optimizer = optim.Adam(net.parameters(), lr=0.0005)
+    optimizer = optim.Adam(net.parameters(), lr=0.001)
 
     train_ctc_losses, val_ctc_losses, test_ctc_losses = [], [], []
     train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
     train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
-    early_stopper = EarlyStopper(patience=1, min_delta=0.005)
+    # early_stopper = EarlyStopper(patience=1, min_delta=0.005)
+    early_stopper = EarlyStopper(patience=1, min_delta=500)
 
     print("data loaded. start training")
 
@@ -145,7 +147,7 @@ def main():
         val_cer_losses.append(val_cer_loss)
 
         print(
-            f"epoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
+            f"\nepoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
 
         test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
         test_ctc_losses.append(test_ctc_loss)
@@ -154,6 +156,8 @@ def main():
 
         if (early_stopper.early_stop(test_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
             torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
+            if epoch != ClassifierArgs.epochs - 1:
+                print("exit early")
             break
 
     # can be shortened to a loop, later on.
@@ -191,6 +195,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
+    is_first_batch = True
 
     torch.enable_grad()
     # Iterate through the training data
@@ -210,7 +215,9 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
+        if is_first_batch:
+            wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
+            is_first_batch = False
         sum_wer_loss += wer_loss
         sum_cer_loss += cer_loss
 
@@ -233,6 +240,8 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
 def dataloader_score(loss_function, net, data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
+    is_first_batch = True
+
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
             # add dimension for the channels
@@ -248,7 +257,9 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            wer_loss, cer_loss = get_er_loss(output, target_text)
+            if is_first_batch:
+                wer_loss, cer_loss = get_er_loss(output, target_text)
+                is_first_batch = False
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1

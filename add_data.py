@@ -29,7 +29,7 @@ def main():
         # Check if the combined num_frames is smaller than the maximum size
         if num_frames1 + num_frames2 < longest_num_frames:
             i += 1
-            print(f"combining \"{file1_path}\" and \"{file2_path}\"")
+            #print(f"combining \"{file1_path}\" and \"{file2_path}\"")
 
             # Create a new combined WAV file
             output_path1 = file1_path[:-4] + '_' + file2_path
@@ -64,6 +64,9 @@ def main():
         # close files
         wav_file1.close()
         wav_file2.close()
+
+        if i%100 == 0:
+            print (i)
 
 
 def find_longest_file():
