@@ -95,24 +95,16 @@ def load_wav_files(paths, state='MFC', train=False):
     for file_path in file_list:
         if not file_path.endswith('.wav'): continue
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
-        
+
         # adding noise
         if train:
-            data = data + np.random.normal(0, 0.00001, data.shape).astype(np.float32)
+            noised_d = data + np.random.normal(0, 0.00001, data.shape).astype(np.float32)
+            noised_d = librosa.feature.melspectrogram(y=noised_d, sr=sr).T  # extract (128,T) convert to (T,128)
+            spectogram_list.append(noised_d)
 
-        if state == 'MFCC':
-            data = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=128)
-        if state == 'MFC':
-            data = librosa.feature.melspectrogram(y=data, sr=sr).T  # extract (128,T) convert to (T,128)
-        elif state == 'WAVEFORM':
-            # Calculate the starting indices of each chunk
-            start_indices = np.arange(0, len(data), chunk_size - overlap)
-            data = np.pad(data, data // 2024)
-            # Split the array into chunks using the calculated indices
-            data = np.array([data[i:i + chunk_size] for i in start_indices])
-        # else:
+        data = librosa.feature.melspectrogram(y=data, sr=sr).T  # extract (128,T) convert to (T,128)
+        spectogram_list.append(data)
 
-        spectogram_list.append(data)  # todo check size of data with WAVEFORM. make sure its (T,128)
         input_len_list.append(data.shape[0])
         if max_len < data.shape[0]:
             max_len = data.shape[0]

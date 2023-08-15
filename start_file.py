@@ -38,9 +38,9 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 150
+    epochs = 50
     save_model = True
-    run_name = 'Stage2/'
+    stage = 'Stage2/'
 
 
 def hash_label(label: str):
@@ -101,7 +101,6 @@ def custom_collate_fn(batch):
 
 
 def main():
-
     t = ClassifierArgs()
     data_state = DATASET_STATES[1]
 
@@ -118,8 +117,8 @@ def main():
 
     ctc_loss = nn.CTCLoss()
 
-    for net in [ExtendedCharNet1(t), CharNet_1(t), CharNet_1_BN(t), CharNet_plusConv_BN(t)]:
-    # for net in [ExtendedCharNet1(t)]:
+    # for net in [ExtendedCharNet1(t), CharNet_1(t), CharNet_1_BN(t), CharNet_plusConv_BN(t)]:
+    for net in [ExtendedCharNet1(t)]:
 
         optimizer = optim.Adam(net.parameters(), lr=0.0005)
         early_stopper = EarlyStopper(patience=5, min_delta=0.01)
@@ -150,15 +149,15 @@ def main():
         val_cer_losses = np.clip(np.array(val_cer_losses), a_min=0, a_max=1)
         val_wer_losses = np.clip(np.array(val_wer_losses), a_min=0, a_max=1)
 
-        title = f'Stage_2_{net.name}'
+        title = f'{ClassifierArgs.stage}{net.name}'
         # can be shortened to a loop, later on.
         plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
-        plotter(plot_name, plot_name=title, x_axis_label='epochs', y_axis_label='loss',
+        plotter(title+' '+plot_name, plot_name=title+' '+plot_name, x_axis_label='epochs', y_axis_label='loss',
                 data=[train_ctc_losses, val_ctc_losses],
                 data_labels=['training loss', 'val loss'])
 
         plotter('Validation Wer and Cer', title, x_axis_label='epochs', y_axis_label='score',
-                data=[val_wer_losses, val_cer_losses], data_labels=['wer score', 'csr score'])
+                data=[val_wer_losses, val_cer_losses], data_labels=['wer score', 'cer score'])
 
         # tuples of ctc wer ser
         test_scores_ctc_wer_ser = torch.Tensor(dataloader_score(ctc_loss, net, test_loader))
@@ -166,7 +165,7 @@ def main():
         val_scores_ctc_wer_ser = torch.Tensor(dataloader_score(ctc_loss, net, validation_loader))
         all_scores = torch.stack((train_scores_ctc_wer_ser, val_scores_ctc_wer_ser, test_scores_ctc_wer_ser)).numpy()
         title = title.replace('_', ' ')
-        pd.DataFrame(all_scores).to_csv(f'{title} {plot_name} results')
+        pd.DataFrame(all_scores).to_csv(f'{title} results.csv')
 
 
 def plotter(title, plot_name, x_axis_label, y_axis_label, data, data_labels):
@@ -177,9 +176,10 @@ def plotter(title, plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.ylabel(y_axis_label)
     plt.xlabel(x_axis_label)
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
-    plt.title('plots/' + ClassifierArgs.run_name + plot_name + '.jpeg')
-    plt.suptitle(title, fontsize=18)
-    plt.savefig(f'{plot_name}')
+    if plot_name != title:
+        plt.suptitle(title, fontsize=18)
+    plt.title(f'{plot_name}')
+    plt.savefig(f'plots/' + plot_name + '.jpeg')
     plt.clf()
     plt.cla()
 
@@ -211,6 +211,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
+        break
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i
@@ -365,33 +366,31 @@ def checkplot():
         break
 
 
-
-
 if __name__ == '__main__':
-    # main()
-
-    # CSV data as a string
-
-    df = pd.read_csv(r'C:\work\projects\asr_project_2\Stage 2 CharNet1 ctc loss results.csv')
-    # Set the 'Unnamed: 0' column as the index
-    df.set_index('Unnamed: 0', inplace=True)
-
-    # Create a bar plot
-    ax = df.plot(kind='bar', figsize=(10, 6))
-
-    # Set labels and title
-    plt.xlabel('Data Split')
-    plt.ylabel('Value')
-    plt.title('Comparison of ctc, wer, and cer')
-
-    # Show the plot
-    plt.show()
+    main()
 
     # checkplot()
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(device)
 
+    """to plot barplot"""
+    # CSV data as a string
+
+    # df = pd.read_csv(r'C:\work\projects\asr_project_2\Stage 2 CharNet1 ctc loss results.csv')
+    # # Set the 'Unnamed: 0' column as the index
+    # df.set_index('Unnamed: 0', inplace=True)
+    #
+    # # Create a bar plot
+    # ax = df.plot(kind='bar', figsize=(10, 6))
+    #
+    # # Set labels and title
+    # plt.xlabel('Data Split')
+    # plt.ylabel('Value')
+    # plt.title('Comparison of ctc, wer, and cer')
+    #
+    # # Show the plot
+    # plt.show()
 """
 - basic model
 1 batch norm                            V
