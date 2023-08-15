@@ -7,6 +7,7 @@ txt_path = r'an4\\train\\an4\\txt\\'
 longest_num_frames = 102400  # calculated using find_longest_file()
 
 
+
 def main():
     # List all files in the folder
     wav_files = [file for file in os.listdir(wav_path) if file.endswith('.wav')]

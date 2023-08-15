@@ -11,6 +11,7 @@ from networks import index2char, char2index
 from networks import *
 import utils
 from tqdm import tqdm
+import pandas as pd
 
 # from torchaudio.models.decoder import cuda_ctc_decoder
 
@@ -99,39 +100,28 @@ def custom_collate_fn(batch):
 
 
 def main():
-    # define the network
-    # net = CharacterDetectionNet_1(ClassifierArgs())
-    # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
-    #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
+
+    t = ClassifierArgs()
+    data_state = DATASET_STATES[1]
+
+    training_dataset = CustomASRDataset(t.training_path + '\\wav', train_path + '\\txt', 128, is_training=True)
+    training_loader = DataLoader(training_dataset, batch_size=t.batch_size, shuffle=True)
+
+    validation_dataset = CustomASRDataset(t.val_path + '\\wav', t.val_path + '\\txt', 128)
+    validation_loader = DataLoader(validation_dataset, batch_size=t.batch_size, shuffle=False)
+
+    test_dataset = CustomASRDataset(t.test_path + '\\wav', t.test_path + '\\txt', 128)
+    test_loader = DataLoader(test_dataset, batch_size=t.batch_size, shuffle=False)
+
     print(f"device: {device}")
 
-    data_state = DATASET_STATES[1]
-    net = CharNet_1(ClassifierArgs())
-
-    # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state,
-                                        is_training=True)
-    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
+    for net in [ExtendedCharNet1(t), CharNet_1(t), CharNet_1_BN(t), CharNet_plusConv_BN(t)]:
+    # for net in [ExtendedCharNet1(t)]:
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
-                                          data_state)
-    validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
-
-    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
-                                    data_state)
-    test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
-
-    # Set up the training loop
-    # optimizer = optim.Adam(net.parameters(), lr=0.0005)
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
-
-    train_ctc_losses, val_ctc_losses, test_ctc_losses = [], [], []
-    train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
-    train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
-
-    early_stopper = EarlyStopper(patience=1, min_delta=0.05)
+        optimizer = optim.Adam(net.parameters(), lr=0.0005)
+        early_stopper = EarlyStopper(patience=5, min_delta=0.01)
 
     print("data loaded. start training")
 
