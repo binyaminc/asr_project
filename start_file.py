@@ -38,8 +38,9 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 2
-    save_model = False
+    epochs = 150
+    save_model = True
+    run_name = 'Stage2/'
 
 
 def hash_label(label: str):
@@ -123,64 +124,52 @@ def main():
         optimizer = optim.Adam(net.parameters(), lr=0.0005)
         early_stopper = EarlyStopper(patience=5, min_delta=0.01)
 
-    print("data loaded. start training")
+        print("data loaded. start training")
+        train_ctc_losses, val_ctc_losses, test_ctc_losses = [], [], []
+        val_ctc_losses, val_wer_losses, val_cer_losses = [], [], []
 
-    net.to(device)
-    for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader,
-                                                                         is_training=True)
-        train_ctc_losses.append(train_ctc_loss)
-        train_wer_losses.append(train_wer_loss)
-        train_cer_losses.append(train_cer_loss)
+        net.to(device)
+        for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
+            train_ctc_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
+            train_ctc_losses.append(train_ctc_loss)
 
-        val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss, net, validation_loader)
-        val_ctc_losses.append(val_ctc_loss)
-        val_wer_losses.append(val_wer_loss)
-        val_cer_losses.append(val_cer_loss)
+            val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss, net, validation_loader)
+            val_ctc_losses.append(val_ctc_loss)
+            val_wer_losses.append(val_wer_loss)
+            val_cer_losses.append(val_cer_loss)
+            print(
+                f'\nepoch {epoch}: TRAIN loss = {round(train_ctc_loss, 6)} , VAL loss {round(val_ctc_loss, 6)}')
 
-        print(
-            f"\nepoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
+            if (early_stopper.early_stop(
+                    val_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
+                torch.save(net.state_dict(), f'saved_models/{net.name}{data_state}_epoch{epoch}.pt')
+                if epoch != ClassifierArgs.epochs - 1:
+                    print("exit early")
+                break
 
-        test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
-        test_ctc_losses.append(test_ctc_loss)
-        test_wer_losses.append(test_wer_loss)
-        test_cer_losses.append(test_cer_loss)
+        val_cer_losses = np.clip(np.array(val_cer_losses), a_min=0, a_max=1)
+        val_wer_losses = np.clip(np.array(val_wer_losses), a_min=0, a_max=1)
 
-        if (early_stopper.early_stop(
-                test_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
-            torch.save(net.state_dict(), f'saved_models/{net.name}{data_state}_epoch{epoch}.pt')
-            if epoch != ClassifierArgs.epochs - 1:
-                print("exit early")
-            break
+        title = f'Stage_2_{net.name}'
+        # can be shortened to a loop, later on.
+        plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
+        plotter(plot_name, plot_name=title, x_axis_label='epochs', y_axis_label='loss',
+                data=[train_ctc_losses, val_ctc_losses],
+                data_labels=['training loss', 'val loss'])
 
-    # aligning w/cer to be maximum 1
-    train_wer_loss = [w if w <= 1 else 1 for w in train_wer_losses]
-    train_cer_loss = [c if c <= 1 else 1 for c in train_cer_losses]
-    val_wer_loss = [w if w <= 1 else 1 for w in val_wer_losses]
-    val_cer_loss = [c if c <= 1 else 1 for c in val_cer_losses]
+        plotter('Validation Wer and Cer', title, x_axis_label='epochs', y_axis_label='score',
+                data=[val_wer_losses, val_cer_losses], data_labels=['wer score', 'csr score'])
 
-    # can be shortened to a loop, later on.
-    plot_name = f'ctc loss (min validation {min(train_ctc_losses):%.5f}'  # f'{net.name}_{data_state}_ctc'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_ctc_losses, val_ctc_losses, test_ctc_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
-    plt.clf()
-    plt.cla()
-
-    plot_name = f'wer loss (min test {min(test_wer_losses):%.5f}'  # f'{net.name} {data_state} wer'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_wer_losses, val_wer_losses, test_wer_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
-    plt.clf()
-    plt.cla()
-
-    plot_name = f'cer loss (min test {min(test_cer_losses):%.5f})'  # f'{net.name} {data_state} cer'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_cer_losses, val_cer_losses, test_cer_losses],
-            data_labels=['training loss', 'val loss', 'test loss'])
+        # tuples of ctc wer ser
+        test_scores_ctc_wer_ser = torch.Tensor(dataloader_score(ctc_loss, net, test_loader))
+        train_scores_ctc_wer_ser = torch.Tensor(dataloader_score(ctc_loss, net, training_loader))
+        val_scores_ctc_wer_ser = torch.Tensor(dataloader_score(ctc_loss, net, validation_loader))
+        all_scores = torch.stack((train_scores_ctc_wer_ser, val_scores_ctc_wer_ser, test_scores_ctc_wer_ser)).numpy()
+        title = title.replace('_', ' ')
+        pd.DataFrame(all_scores).to_csv(f'{title} {plot_name} results')
 
 
-def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
+def plotter(title, plot_name, x_axis_label, y_axis_label, data, data_labels):
     # plt losses
     for i in range(len(data)):
         plt.plot(data[i], label=data_labels[i])
@@ -188,14 +177,16 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.ylabel(y_axis_label)
     plt.xlabel(x_axis_label)
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
-    plt.title(plot_name)
-    plt.savefig(f'plots/{plot_name}.jpeg')
+    plt.title('plots/' + ClassifierArgs.run_name + plot_name + '.jpeg')
+    plt.suptitle(title, fontsize=18)
+    plt.savefig(f'{plot_name}')
+    plt.clf()
+    plt.cla()
 
 
-def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_training=False):
+def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
-    is_first_batch = True
 
     torch.enable_grad()
     # Iterate through the training data
@@ -215,12 +206,6 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_trai
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        if is_first_batch and is_training:
-            wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
-            is_first_batch = False
-        sum_wer_loss += wer_loss
-        sum_cer_loss += cer_loss
-
         # Backward pass and optimization
         ctc_loss.backward()
         optimizer.step()
@@ -228,13 +213,12 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_trai
         i += 1
 
     torch.cuda.empty_cache()
-    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
+    return sum_ctc_loss / i
 
 
 def dataloader_score(loss_function, net, data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
-    is_first_batch = True
 
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
@@ -255,6 +239,7 @@ def dataloader_score(loss_function, net, data_loader):
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
+            if i > 100: break  # after increasing training set size, it is endless
 
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
@@ -286,7 +271,6 @@ def get_er_loss(output, target_text):
         cer_losses_sum += cer_loss
 
         k += 1
-        i = k
 
     return wer_losses_sum / (k), cer_losses_sum / (k)
 
@@ -327,7 +311,7 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
         # new char is the same as the last char in trail
         if char == trail[-1]:
-            if not trail in texts: texts[trail] = [0, 0]
+            if trail not in texts: texts[trail] = [0, 0]
             if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
 
             texts[trail][0] += prob[0] * char_prob
@@ -381,8 +365,28 @@ def checkplot():
         break
 
 
+
+
 if __name__ == '__main__':
-    main()
+    # main()
+
+    # CSV data as a string
+
+    df = pd.read_csv(r'C:\work\projects\asr_project_2\Stage 2 CharNet1 ctc loss results.csv')
+    # Set the 'Unnamed: 0' column as the index
+    df.set_index('Unnamed: 0', inplace=True)
+
+    # Create a bar plot
+    ax = df.plot(kind='bar', figsize=(10, 6))
+
+    # Set labels and title
+    plt.xlabel('Data Split')
+    plt.ylabel('Value')
+    plt.title('Comparison of ctc, wer, and cer')
+
+    # Show the plot
+    plt.show()
+
     # checkplot()
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
