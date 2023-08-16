@@ -1,18 +1,54 @@
 import os
 import wave
 import random
+import librosa
+import soundfile as sf
 
 wav_path = r'an4\\train\\an4\\wav\\'
 txt_path = r'an4\\train\\an4\\txt\\'
 longest_num_frames = 102400  # calculated using find_longest_file()
-
+import numpy as np
 
 def main():
+    
+    do_want = input("do you want to create some new data? (y/n)")
+    if do_want != 'y':
+        print("exit creating")
+        return
+
+    create_merged_data()
+    create_noisy_data()
+    
+
+def create_noisy_data(SNR=20):
+    # List all files in the folder
+    wav_files = [file for file in os.listdir(wav_path) if file.endswith('.wav')]
+
+    for wav_file in wav_files:
+        data, sr = librosa.load(wav_path + wav_file, mono=True)
+        
+        # create noisy data
+        max_amplitude = max(np.max(data), abs(np.min(data)))
+        noise = np.random.normal(0, max_amplitude/SNR, data.shape).astype(np.float32)
+        noisy_data = data + noise
+
+        # save noisy data
+        noisy_file = wav_file[:-4] + '_noisy.wav'
+        sf.write(wav_path + noisy_file, noisy_data, sr)
+
+        text_path = wav_file[:-4] + '.txt'
+        with open(txt_path + text_path, 'r') as file:
+            text = file.read()
+
+        with open(txt_path + text_path[:-4] + '_noisy.txt', 'w') as destination_file:
+            destination_file.write(text)
+
+
+def create_merged_data():
     # List all files in the folder
     wav_files = [file for file in os.listdir(wav_path) if file.endswith('.wav')]
 
     i = 0
-
     while i < 4000:
         file1_path, file2_path = random.sample(wav_files, 2)
 
@@ -24,7 +60,6 @@ def main():
         # Open the second WAV file
         wav_file2 = wave.open(wav_path + file2_path, 'rb')
         num_frames2 = wav_file2.getnframes()
-        params2 = wav_file2.getparams()
 
         # Check if the combined num_frames is smaller than the maximum size
         if num_frames1 + num_frames2 < longest_num_frames:

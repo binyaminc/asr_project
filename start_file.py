@@ -11,6 +11,7 @@ from networks import index2char, char2index
 from networks import *
 import utils
 from tqdm import tqdm
+import shutil
 
 # from torchaudio.models.decoder import cuda_ctc_decoder
 
@@ -37,7 +38,7 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 150
+    epochs = 120
     save_model = True
 
 
@@ -70,7 +71,13 @@ class CustomASRDataset(Dataset):
         return len(self.file_list)
 
     def __getitem__(self, idx):
+        # if self.is_training:
+        #     audio_filename = self.file_list[int(idx/2)]
+        # else:
+        #     audio_filename = self.file_list[idx]
+        
         audio_filename = self.file_list[idx]
+
         label_filename = os.path.splitext(audio_filename)[0] + ".txt"
         label_path = os.path.join(self.label_dir, label_filename)
 
@@ -105,102 +112,104 @@ def main():
     #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
     print(f"device: {device}")
 
-    # with open('D:\\audio_project\\asr_project\\results_basic.txt', 'r') as file:
-    #     train_cer_losses, val_cer_losses = [], []
-    #     for line in file: 
-    #         splitted = line.split()
-    #         train_cer_losses.append(float(splitted[7][:-1]))
-    #         val_cer_losses.append(float(splitted[13]))
-
-    #     train_cer_losses = [c if c<=1 else 1 for c in train_cer_losses]
-    #     val_cer_losses = [c if c<=1 else 1 for c in val_cer_losses]
-
-    #     plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
-    #     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-    #         data=[train_cer_losses, val_cer_losses],
-    #         data_labels=['training loss', 'val loss'])
-
-
     data_state = DATASET_STATES[1]
     net = CharNet_1(ClassifierArgs())
-
+    # net = CharNet_1_BN(ClassifierArgs())
     # Define the CTC loss
-    ctc_loss = nn.CTCLoss()
+    ctc_loss_func = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state,
-                                        is_training=True)
-    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state, is_training=True)
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
-                                          data_state)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, data_state)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
-                                    data_state)
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, data_state)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     # Set up the training loop
     # optimizer = optim.Adam(net.parameters(), lr=0.0005)
     optimizer = optim.Adam(net.parameters(), lr=0.001)
 
-    train_ctc_losses, val_ctc_losses, test_ctc_losses = [], [], []
-    train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
-    train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
+    train_ctc_losses, val_ctc_losses = [], []
+    train_wer_losses, val_wer_losses = [], []
+    train_cer_losses, val_cer_losses = [], []
 
-    early_stopper = EarlyStopper(patience=1, min_delta=0.05)
+    early_stopper = EarlyStopper(patience=5, min_delta=0.01)
 
     print("data loaded. start training")
 
+    best_wer, best_cer = 1.0, 1.0
+
     net.to(device)
     for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader,
-                                                                         is_training=True)
+        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss_func, net, optimizer, training_loader)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
         train_cer_losses.append(train_cer_loss)
 
-        val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss, net, validation_loader)
+        val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss_func, net, validation_loader)
         val_ctc_losses.append(val_ctc_loss)
         val_wer_losses.append(val_wer_loss)
         val_cer_losses.append(val_cer_loss)
 
-        print(
-            f"\nepoch {epoch}: TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}, VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
+        print(f"\nepoch {epoch}: " \
+            + f"TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}" \
+            + f", VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
 
-        # test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss, net, test_loader)
-        # test_ctc_losses.append(test_ctc_loss)
-        # test_wer_losses.append(test_wer_loss)
-        # test_cer_losses.append(test_cer_loss)
+        if val_wer_loss < best_wer or val_cer_loss < best_cer:
+            torch.save(net.state_dict(), f'curr_models/epoch{epoch}_wer-{round(val_wer_loss, 6)}_cer-{round(val_cer_loss, 6)}.pt')
+            best_wer, best_cer = min(best_wer, val_wer_loss), min(best_cer, val_cer_loss)
+        
+        if (early_stopper.early_stop(val_cer_loss)):
+                print("stop early")
+                break
 
-        if (early_stopper.early_stop(val_cer_loss) or epoch == ClassifierArgs.epochs - 1) and ClassifierArgs.save_model:
-            torch.save(net.state_dict(), f'saved_models/{net.name}_{data_state}_epoch_{epoch}.pt')
-            if epoch != ClassifierArgs.epochs - 1:
-                print("exit early")
+    print("finished training the network. finding best network...")
+
+    # load best model and save it
+    best_weights = ''
+    for file_name in os.listdir('./curr_models/'):
+        cer = float(file_name.split('-')[-1][:-3])
+        if cer == round(best_cer, 6):
+            best_weights = file_name
             break
+    best_net_state = torch.load('./curr_models/' + best_weights)
+    net.load_state_dict(best_net_state)
+    torch.save(net.state_dict(), f'saved_models/{file_name}')
+
+    shutil.rmtree('./curr_models/')
+    os.mkdir('./curr_models/')
+
+    print(f"best network: {best_weights}")
+
+    # evaluate performance of best model
+    print("evaluate...")
+    val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss_func, net, validation_loader)
+    test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss_func, net, test_loader)
+    print(f"VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)} " + \
+          f"TEST loss-wer-cer = {round(test_ctc_loss, 6)} {round(test_wer_loss, 6)} {round(test_cer_loss, 6)}")
 
     # aligning w/cer to be maximum 1
-    train_wer_loss = [w if w <= 1 else 1 for w in train_wer_losses]
-    train_cer_loss = [c if c <= 1 else 1 for c in train_cer_losses]
-    val_wer_loss = [w if w <= 1 else 1 for w in val_wer_losses]
-    val_cer_loss = [c if c <= 1 else 1 for c in val_cer_losses]
+    train_wer_losses = [w if w <= 1 else 1 for w in train_wer_losses]
+    train_cer_losses = [c if c <= 1 else 1 for c in train_cer_losses]
+    val_wer_losses = [w if w <= 1 else 1 for w in val_wer_losses]
+    val_cer_losses = [c if c <= 1 else 1 for c in val_cer_losses]
 
-    # can be shortened to a loop, later on.
-    plot_name = f'ctc loss (min validation {min(train_ctc_losses):%.5f}'  # f'{net.name}_{data_state}_ctc'
+    # plot results
+    plot_name = f'ctc loss'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses],
             data_labels=['training loss', 'val loss'])
     plt.clf()
-    plt.cla()
 
-    plot_name = f'wer loss (min test {min(test_wer_losses):%.5f}'  # f'{net.name} {data_state} wer'
+    plot_name = f'wer loss'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses],
             data_labels=['training loss', 'val loss'])
     plt.clf()
-    plt.cla()
-
     
-    plot_name = 'cer loss'  # f'{net.name} {data_state} cer'
+    plot_name = 'cer loss'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_cer_losses, val_cer_losses],
             data_labels=['training loss', 'val loss'])
@@ -218,7 +227,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.savefig(f'plots/{plot_name}.jpeg')
 
 
-def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_training=False):
+def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
     is_first_batch = True
@@ -241,7 +250,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_trai
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        if is_first_batch and is_training:
+        if is_first_batch:
             wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
             is_first_batch = False
         sum_wer_loss += wer_loss
@@ -260,7 +269,6 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_trai
 def dataloader_score(loss_function, net, data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
-    is_first_batch = True
 
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:

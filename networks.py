@@ -21,13 +21,10 @@ class CharNet_1(nn.Module):
         self.conv5 = nn.Conv2d(conv_kernels[5 - 1], conv_kernels[5], 3, padding=1)
         self.conv6 = nn.Conv2d(conv_kernels[6 - 1], conv_kernels[6], 3, padding=1)
         
-        # self.conv6 = nn.Conv2d(conv_kernels[4 - 1], conv_kernels[6], 3, padding=1)
-        
         self.relu = nn.ReLU()
         self.maxpooling = nn.MaxPool2d(kernel_size=(2, 1))
         self.linear = nn.Linear(1024, len(index2char))
-        # self.linear = nn.Linear(4096, len(index2char))
-
+        
         # a more pythonic way to go about this:
         # self.convs = [nn.Conv1d(1, conv_kernels[0], 3, padding=1)] + \
         #              [nn.Conv1d(conv_kernels[i - 1], conv_kernels[i], 3, padding=1) for i in
