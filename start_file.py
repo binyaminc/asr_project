@@ -11,6 +11,7 @@ from networks import index2char, char2index
 from networks import *
 import utils
 from tqdm import tqdm
+
 # from torchaudio.models.decoder import cuda_ctc_decoder
 
 train_path = r'an4\\train\\an4\\'
@@ -45,11 +46,11 @@ def hash_label(label: str):
 
 
 class CustomASRDataset(Dataset):
-    def __init__(self, audio_dir, label_dir, frame_length, input_type='MFC', is_training=True):
+    def __init__(self, audio_dir, label_dir, frame_length, input_type='MFC', is_training=False):
         # as input type defines the pre processing of the data.
         assert input_type in DATASET_STATES
         self.audio_dir = audio_dir
-        self.audio_data, self.input_length = utils.load_wav_files(audio_dir, input_type)
+        self.audio_data, self.input_length = utils.load_wav_files(audio_dir, input_type, is_training)
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
         self.file_list = [x for x in os.listdir(audio_dir) if x.endswith('.wav')]
@@ -76,7 +77,7 @@ class CustomASRDataset(Dataset):
         with open(label_path, 'r') as label_file:
             label = label_file.read().strip()
 
-        # Spectrogram is splitted to 128 values per time step. time step decided by max length at __init__,load_wav_...
+        # Spectrogram is splitted to 128 values per time step. time step decided by max length at _init,load_wav...
         spectrogram = self.audio_data[idx]
         pad = self.max_len_label - len(label)
         label = label + pad * '@'
@@ -126,8 +127,9 @@ def main():
     # Define the CTC loss
     ctc_loss = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state)
-    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state,
+                                        is_training=True)
+    training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
                                           data_state)
@@ -145,14 +147,14 @@ def main():
     train_wer_losses, val_wer_losses, test_wer_losses = [], [], []
     train_cer_losses, val_cer_losses, test_cer_losses = [], [], []
 
-    # early_stopper = EarlyStopper(patience=1, min_delta=0.005)
-    early_stopper = EarlyStopper(patience=1, min_delta=500)
+    early_stopper = EarlyStopper(patience=1, min_delta=0.05)
 
     print("data loaded. start training")
 
     net.to(device)
     for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader)
+        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss, net, optimizer, training_loader,
+                                                                         is_training=True)
         train_ctc_losses.append(train_ctc_loss)
         train_wer_losses.append(train_wer_loss)
         train_cer_losses.append(train_cer_loss)
@@ -177,20 +179,20 @@ def main():
             break
 
     # aligning w/cer to be maximum 1
-    train_wer_losses = [w if w<=1 else 1 for w in train_wer_losses]
-    train_cer_losses = [c if c<=1 else 1 for c in train_cer_losses]
-    val_wer_losses = [w if w<=1 else 1 for w in val_wer_losses]
-    val_cer_losses = [c if c<=1 else 1 for c in val_cer_losses]
+    train_wer_loss = [w if w <= 1 else 1 for w in train_wer_losses]
+    train_cer_loss = [c if c <= 1 else 1 for c in train_cer_losses]
+    val_wer_loss = [w if w <= 1 else 1 for w in val_wer_losses]
+    val_cer_loss = [c if c <= 1 else 1 for c in val_cer_losses]
 
     # can be shortened to a loop, later on.
-    plot_name = 'ctc loss'  # f'{net.name}_{data_state}_ctc'
+    plot_name = f'ctc loss (min validation {min(train_ctc_losses):%.5f}'  # f'{net.name}_{data_state}_ctc'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses],
             data_labels=['training loss', 'val loss'])
     plt.clf()
     plt.cla()
 
-    plot_name = 'wer loss'  # f'{net.name} {data_state} wer'
+    plot_name = f'wer loss (min test {min(test_wer_losses):%.5f}'  # f'{net.name} {data_state} wer'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses],
             data_labels=['training loss', 'val loss'])
@@ -216,7 +218,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.savefig(f'plots/{plot_name}.jpeg')
 
 
-def train_one_epoch(loss_function, net, optimizer, training_data_loader):
+def train_one_epoch(loss_function, net, optimizer, training_data_loader, is_training=False):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
     is_first_batch = True
@@ -239,7 +241,7 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        if is_first_batch:
+        if is_first_batch and is_training:
             wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
             is_first_batch = False
         sum_wer_loss += wer_loss
@@ -253,12 +255,6 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
 
     torch.cuda.empty_cache()
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
-
-# Create an instance of the CUCTCDecoder class
-# decoder = cuda_ctc_decoder(alphabet, nbest=1, beam_size=10)
-
-# Compute the output of the model
-# decoded = decoder(probability_matrix)
 
 
 def dataloader_score(loss_function, net, data_loader):
@@ -281,9 +277,7 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            if is_first_batch:
-                wer_loss, cer_loss = get_er_loss(output, target_text)
-                is_first_batch = False
+            wer_loss, cer_loss = get_er_loss(output, target_text)
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
@@ -301,7 +295,7 @@ def get_er_loss(output, target_text):
     k = 0
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
-        
+
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
         best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
@@ -381,7 +375,7 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
 
 class EarlyStopper:
-    def __init__(self, patience=1, min_delta=0):
+    def __init__(self, patience=1, min_delta=0.0):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0

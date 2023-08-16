@@ -68,7 +68,7 @@ def calculate_probability(matrix_path: torch.Tensor, labels: str, alphabet: list
     return ctc_matrix[-1, -1] + ctc_matrix[-2, -1]
 
 
-def load_wav_files(paths, state='MFC'):
+def load_wav_files(paths, state='MFC', train=False):
     """
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
@@ -97,8 +97,8 @@ def load_wav_files(paths, state='MFC'):
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
         
         # adding noise
-        # noise = np.random.normal(0, 1, data.shape).astype(np.float32)
-        # data = data + noise
+        if train:
+            data = data + np.random.normal(0, 1, data.shape).astype(np.float32)
 
         if state == 'MFCC':
             data = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=128)
