@@ -9,6 +9,7 @@ txt_path = r'an4\\train\\an4\\txt\\'
 longest_num_frames = 102400  # calculated using find_longest_file()
 import numpy as np
 
+
 def main():
     
     do_want = input("do you want to create some new data? (y/n)")
