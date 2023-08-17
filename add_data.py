@@ -18,7 +18,7 @@ def main():
         return
 
     create_merged_data()
-    create_noisy_data()
+    # create_noisy_data()
     
 
 def create_noisy_data(SNR=20):
@@ -97,12 +97,12 @@ def create_merged_data():
             with open(txt_path + file2_path[:-4] + '_' + file1_path, 'w') as destination_file:
                 destination_file.write(data2 + ' ' + data1)
 
-        # close files
-        wav_file1.close()
-        wav_file2.close()
+            # close files
+            wav_file1.close()
+            wav_file2.close()
 
-        if i%100 == 0:
-            print (i)
+            if i%100 == 0:
+                print (i)
 
 
 def find_longest_file():

@@ -11,7 +11,6 @@ from networks import index2char, char2index
 from networks import *
 import utils
 from tqdm import tqdm
-import pandas as pd
 import shutil
 
 # from torchaudio.models.decoder import cuda_ctc_decoder
@@ -39,9 +38,8 @@ class ClassifierArgs:
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
     batch_size = 32
-    epochs = 50
+    epochs = 60
     save_model = True
-    stage = 'Stage2/'
 
 
 def hash_label(label: str):
@@ -53,7 +51,7 @@ class CustomASRDataset(Dataset):
         # as input type defines the pre processing of the data.
         assert input_type in DATASET_STATES
         self.audio_dir = audio_dir
-        self.audio_data, self.input_length = utils.load_wav_files(audio_dir, input_type, is_training)
+        self.audio_data, self.input_length = utils.load_wav_files(audio_dir, input_type)
         self.label_dir = label_dir
         self.file_list = os.listdir(audio_dir)
         self.file_list = [x for x in os.listdir(audio_dir) if x.endswith('.wav')]
@@ -108,23 +106,15 @@ def custom_collate_fn(batch):
 
 
 def main():
-    t = ClassifierArgs()
-    data_state = DATASET_STATES[1]
-
-    training_dataset = CustomASRDataset(t.training_path + '\\wav', train_path + '\\txt', 128, is_training=True)
-    training_loader = DataLoader(training_dataset, batch_size=t.batch_size, shuffle=True)
-
-    validation_dataset = CustomASRDataset(t.val_path + '\\wav', t.val_path + '\\txt', 128)
-    validation_loader = DataLoader(validation_dataset, batch_size=t.batch_size, shuffle=False)
-
-    test_dataset = CustomASRDataset(t.test_path + '\\wav', t.test_path + '\\txt', 128)
-    test_loader = DataLoader(test_dataset, batch_size=t.batch_size, shuffle=False)
-
+    # define the network
+    # net = CharacterDetectionNet_1(ClassifierArgs())
+    # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
+    #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
     print(f"device: {device}")
 
     data_state = DATASET_STATES[1]
-    net = CharNet_1(ClassifierArgs())
-    # net = CharNet_1_BN(ClassifierArgs())
+    # net = CharNet_1(ClassifierArgs())
+    net = CharNet_1_BN(ClassifierArgs())
     # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
@@ -197,8 +187,8 @@ def main():
     print("evaluate...")
     val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss_func, net, validation_loader)
     test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss_func, net, test_loader)
-    print(f"VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)} " + \
-          f"TEST loss-wer-cer = {round(test_ctc_loss, 6)} {round(test_wer_loss, 6)} {round(test_cer_loss, 6)}")
+    print(f"VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}" + \
+          f" TEST loss-wer-cer = {round(test_ctc_loss, 6)} {round(test_wer_loss, 6)} {round(test_cer_loss, 6)}")
 
     # aligning w/cer to be maximum 1
     train_wer_losses = [w if w <= 1 else 1 for w in train_wer_losses]
@@ -225,7 +215,7 @@ def main():
             data_labels=['training loss', 'val loss'])
 
 
-def plotter(title, plot_name, x_axis_label, y_axis_label, data, data_labels):
+def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     # plt losses
     for i in range(len(data)):
         plt.plot(data[i], label=data_labels[i])
@@ -233,17 +223,14 @@ def plotter(title, plot_name, x_axis_label, y_axis_label, data, data_labels):
     plt.ylabel(y_axis_label)
     plt.xlabel(x_axis_label)
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
-    if plot_name != title:
-        plt.suptitle(title, fontsize=18)
-    plt.title(f'{plot_name}')
-    plt.savefig(f'plots/' + plot_name + '.jpeg')
-    plt.clf()
-    plt.cla()
+    plt.title(plot_name)
+    plt.savefig(f'plots/{plot_name}.jpeg')
 
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
+    is_first_batch = True
 
     torch.enable_grad()
     # Iterate through the training data
@@ -274,10 +261,9 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         optimizer.step()
 
         i += 1
-        break
 
     torch.cuda.empty_cache()
-    return sum_ctc_loss / i
+    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
 
 def dataloader_score(loss_function, net, data_loader):
@@ -303,7 +289,6 @@ def dataloader_score(loss_function, net, data_loader):
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
-            if i > 100: break  # after increasing training set size, it is endless
 
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
@@ -335,6 +320,7 @@ def get_er_loss(output, target_text):
         cer_losses_sum += cer_loss
 
         k += 1
+        i = k
 
     return wer_losses_sum / (k), cer_losses_sum / (k)
 
@@ -375,7 +361,7 @@ def add_step_to_trail(texts, trail, prob, step_probs):
 
         # new char is the same as the last char in trail
         if char == trail[-1]:
-            if trail not in texts: texts[trail] = [0, 0]
+            if not trail in texts: texts[trail] = [0, 0]
             if not trail + (char,) in texts: texts[trail + (char,)] = [0, 0]
 
             texts[trail][0] += prob[0] * char_prob
@@ -431,29 +417,11 @@ def checkplot():
 
 if __name__ == '__main__':
     main()
-
     # checkplot()
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # print(device)
 
-    """to plot barplot"""
-    # CSV data as a string
-
-    # df = pd.read_csv(r'C:\work\projects\asr_project_2\Stage 2 CharNet1 ctc loss results.csv')
-    # # Set the 'Unnamed: 0' column as the index
-    # df.set_index('Unnamed: 0', inplace=True)
-    #
-    # # Create a bar plot
-    # ax = df.plot(kind='bar', figsize=(10, 6))
-    #
-    # # Set labels and title
-    # plt.xlabel('Data Split')
-    # plt.ylabel('Value')
-    # plt.title('Comparison of ctc, wer, and cer')
-    #
-    # # Show the plot
-    # plt.show()
 """
 - basic model
 1 batch norm                            V

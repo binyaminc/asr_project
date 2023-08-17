@@ -6,11 +6,8 @@ import numpy as np
 import torch
 from typing import List
 import os
-
 from torch.utils.data import Dataset
 import string
-
-
 def create_index(additional_letters: list):
     alphabet = ['<BLANK>', ' '] + list(string.ascii_lowercase) + additional_letters
     index2letter = dict()
@@ -44,7 +41,6 @@ def calculate_probability(matrix_path: torch.Tensor, labels: str, alphabet: list
     :param alphabet: A string specifying the possible output tokens
     :return: The computed probability calculated with CTC
     """
-
     probabilities_matrix = matrix_path
 
     # inserting the empty character, implemented as @
@@ -67,16 +63,13 @@ def calculate_probability(matrix_path: torch.Tensor, labels: str, alphabet: list
 
     return ctc_matrix[-1, -1] + ctc_matrix[-2, -1]
 
-
-def load_wav_files(paths, state='MFC', train=False, SNR=40):
+def load_wav_files(paths, state='MFC'):
     """
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
     """
-    chunk_size = 2024
-    overlap = 512
     spectogram_list = []
-
+    
     if isinstance(paths, str):
         # If a single directory path is provided
         if os.path.isdir(paths):
@@ -89,26 +82,15 @@ def load_wav_files(paths, state='MFC', train=False, SNR=40):
         file_list = [path for path in paths if os.path.isfile(path) and path.endswith(".wav")]
     else:
         raise ValueError("Invalid paths argument:", paths)
-
+    
     max_len = 0
     input_len_list = []
+
     for file_path in file_list:
         if not file_path.endswith('.wav'): continue
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
-        
-        # # adding noise
-        # if train:
-        #     # create noisy data
-        #     max_amplitude = max(np.max(data), abs(np.min(data)))
-        #     noise = np.random.normal(0, max_amplitude/SNR, data.shape).astype(np.float32)
-        #     noisy_data = data + noise
 
-        #     # insert noisy data
-        #     noisy_data = librosa.feature.melspectrogram(y=noisy_data, sr=sr).T 
-        #     spectogram_list.append(noisy_data)
-        #     input_len_list.append(noisy_data.shape[0])
-
-        data = librosa.feature.melspectrogram(y=data, sr=sr).T 
+        data = librosa.feature.melspectrogram(y=data, sr=sr).T
         
         spectogram_list.append(data)
         input_len_list.append(data.shape[0])
@@ -119,7 +101,7 @@ def load_wav_files(paths, state='MFC', train=False, SNR=40):
         if data.shape[0] < max_len:
             pad_len = max_len - data.shape[0]
             spectogram_list[i] = np.pad(data, ((0, pad_len), (0, 0)), mode='constant')
-
+            
     spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
     input_len_tensor = torch.tensor(data=input_len_list)
     return spectrogram_tensor, input_len_tensor
@@ -131,36 +113,39 @@ def get_file_in_dir(path):
     :return: list of the names of files in the directory
     """
     file_names = []
-
     for file_name in os.listdir(path):
         file_names.append(os.path.join(path, file_name))
-
     return file_names
-
-
-# class EarlyStopper:
-#     def __init__(self, patience=1, min_delta=0):
-#         self.patience = patience
-#         self.min_delta = min_delta
-#         self.counter = 0
-#         self.min_validation_loss = np.inf
-
-#     def early_stop(self, validation_loss):
-#         if validation_loss < self.min_validation_loss:
-#             self.min_validation_loss = validation_loss
-#             self.counter = 0
-#         elif validation_loss > (self.min_validation_loss + self.min_delta):
-#             self.counter += 1
-#             if self.counter >= self.patience:
-#                 return True
-#         return False
-
-
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
+# def k_beam(batch: int, probability_tensor: tensor, index: dict):
+#     """
+#     batch: the size of the
+#     @param:probability_tensor - Time steps, probability_per_index.
+#     @description:
+#     """
+#     epsilon_end_dict, char_end_dict = {}, {}
+#     p = torch.argmax(probability_tensor[0])
+#
+#     # init starting values:
+#     pass
 def plot_CTC_output(p_matrix: torch.tensor):
     # of save (T, len(probability))
     p_matrix = np.array(p_matrix)
     itos, _ = create_index([])
-
     plt.figure(figsize=(4, 24))
     plt.imshow(p_matrix, cmap='Blues')
     for i in range(p_matrix.shape[0]):
