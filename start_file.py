@@ -37,7 +37,7 @@ class ClassifierArgs:
     test_path: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 32
+    batch_size = 8  # small batch
     epochs = 60
     save_model = True
 
@@ -201,22 +201,21 @@ def main():
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_ctc_losses, val_ctc_losses],
             data_labels=['training loss', 'val loss'])
-    plt.clf()
 
     plot_name = f'wer loss'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_wer_losses, val_wer_losses],
             data_labels=['training loss', 'val loss'])
-    plt.clf()
-    
+
     plot_name = 'cer loss'
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_cer_losses, val_cer_losses],
-            data_labels=['training loss', 'val loss'])
+            data=[train_cer_losses, val_cer_losses])
 
 
-def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
+def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels=None):
     # plt losses
+    if data_labels is None:
+        data_labels = ['training loss', 'val loss']
     for i in range(len(data)):
         plt.plot(data[i], label=data_labels[i])
     plt.legend()
@@ -225,6 +224,7 @@ def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels):
     # plt.title(f'{type(net)} data preprocessing {data_state} full')
     plt.title(plot_name)
     plt.savefig(f'plots/{plot_name}.jpeg')
+    plt.clf()
 
 
 def train_one_epoch(loss_function, net, optimizer, training_data_loader):
@@ -350,8 +350,7 @@ def beam_search(probs, n=3):
             new_texts = add_step_to_trail(new_texts, text, trail_probs, step_probs)
 
         # find the n entries with the highest probability
-        texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[
-                     -n:])  # TODO: is the best in the 0 or last position?
+        texts = dict(sorted(new_texts.items(), key=lambda item: item[1][0] + item[1][1])[-n:])
 
     return list(texts.keys())
 
@@ -423,10 +422,10 @@ if __name__ == '__main__':
     # print(device)
 
 """
-- basic model
-1 batch norm                            V
-2 WER metric                            ?
-3 to change both models to mfcc         ?
-4 to change both models to waveform     ?
-5 transformers
+noise after adding data - running it is left to do
+mfcc                    - 
+transformers
+augmevtation((?)
+comeete
+handle long input
 """
