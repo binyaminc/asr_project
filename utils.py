@@ -8,6 +8,8 @@ from typing import List
 import os
 from torch.utils.data import Dataset
 import string
+
+
 def create_index(additional_letters: list):
     alphabet = ['<BLANK>', ' '] + list(string.ascii_lowercase) + additional_letters
     index2letter = dict()
@@ -63,13 +65,14 @@ def calculate_probability(matrix_path: torch.Tensor, labels: str, alphabet: list
 
     return ctc_matrix[-1, -1] + ctc_matrix[-2, -1]
 
-def load_wav_files(paths, state='MFC'):
+
+def load_wav_files(paths, preprocess='MFC'):
     """
     :param paths: either a path to directory of .wav files or a list of paths to files
     :return: tensor of shape [number of files, samples per file], samples per file is the data of each file
     """
     spectogram_list = []
-    
+
     if isinstance(paths, str):
         # If a single directory path is provided
         if os.path.isdir(paths):
@@ -82,7 +85,7 @@ def load_wav_files(paths, state='MFC'):
         file_list = [path for path in paths if os.path.isfile(path) and path.endswith(".wav")]
     else:
         raise ValueError("Invalid paths argument:", paths)
-    
+
     max_len = 0
     input_len_list = []
 
@@ -90,8 +93,11 @@ def load_wav_files(paths, state='MFC'):
         if not file_path.endswith('.wav'): continue
         data, sr = librosa.load(file_path, mono=True)  # data = waveform
 
-        data = librosa.feature.melspectrogram(y=data, sr=sr).T
-        
+        if preprocess == 'MFC':
+            data = librosa.feature.melspectrogram(y=data, sr=sr).T
+        else:
+            data = librosa.feature.mfcc(y=data, sr=sr).T
+
         spectogram_list.append(data)
         input_len_list.append(data.shape[0])
         if max_len < data.shape[0]:
@@ -101,7 +107,7 @@ def load_wav_files(paths, state='MFC'):
         if data.shape[0] < max_len:
             pad_len = max_len - data.shape[0]
             spectogram_list[i] = np.pad(data, ((0, pad_len), (0, 0)), mode='constant')
-            
+
     spectrogram_tensor = torch.stack([torch.from_numpy(spec) for spec in spectogram_list])
     input_len_tensor = torch.tensor(data=input_len_list)
     return spectrogram_tensor, input_len_tensor
@@ -116,12 +122,15 @@ def get_file_in_dir(path):
     for file_name in os.listdir(path):
         file_names.append(os.path.join(path, file_name))
     return file_names
+
+
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0):
         self.patience = patience
         self.min_delta = min_delta
         self.counter = 0
         self.min_validation_loss = np.inf
+
     def early_stop(self, validation_loss):
         if validation_loss < self.min_validation_loss:
             self.min_validation_loss = validation_loss
@@ -131,6 +140,8 @@ class EarlyStopper:
             if self.counter >= self.patience:
                 return True
         return False
+
+
 # def k_beam(batch: int, probability_tensor: tensor, index: dict):
 #     """
 #     batch: the size of the

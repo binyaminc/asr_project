@@ -118,7 +118,7 @@ def main():
     # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, data_state, is_training=True)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, 'MFCC', is_training=True)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
     validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, data_state)
@@ -424,8 +424,10 @@ if __name__ == '__main__':
 """
 noise after adding data - running it is left to do
 mfcc                    - 
+depth                   - 
 transformers
 augmevtation((?)
-comeete
+come
+commete
 handle long input
 """
