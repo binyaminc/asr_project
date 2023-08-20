@@ -37,7 +37,7 @@ class ClassifierArgs:
     test_path: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 8  # small batch
+    batch_size = 32  # small batch
     epochs = 60
     save_model = True
 
@@ -114,7 +114,7 @@ def main():
 
     preprocess = 'MFCC'
     # net = CharNet_1(ClassifierArgs())
-    net = MFCCCharNet1BN(ClassifierArgs())
+    net = DeeperMFCCCharNet1BN(ClassifierArgs())
     # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
