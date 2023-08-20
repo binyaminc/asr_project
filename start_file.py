@@ -112,19 +112,19 @@ def main():
     #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
     print(f"device: {device}")
 
-    data_state = DATASET_STATES[1]
+    preprocess = 'MFCC'
     # net = CharNet_1(ClassifierArgs())
-    net = CharNet_1_BN(ClassifierArgs())
+    net = MFCCCharNet1BN(ClassifierArgs())
     # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, 'MFCC', is_training=True)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, preprocess, is_training=True)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, data_state)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, preprocess)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, data_state)
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, preprocess)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
     # Set up the training loop
@@ -161,9 +161,9 @@ def main():
             torch.save(net.state_dict(), f'curr_models/epoch{epoch}_wer-{round(val_wer_loss, 6)}_cer-{round(val_cer_loss, 6)}.pt')
             best_wer, best_cer = min(best_wer, val_wer_loss), min(best_cer, val_cer_loss)
         
-        if (early_stopper.early_stop(val_cer_loss)):
-                print("stop early")
-                break
+        # if (early_stopper.early_stop(val_cer_loss)):
+        #         print("stop early")
+        #         break
 
     print("finished training the network. finding best network...")
 
@@ -211,6 +211,7 @@ def main():
     plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
             data=[train_cer_losses, val_cer_losses])
 
+    print('ended')
 
 def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels=None):
     # plt losses
@@ -400,7 +401,7 @@ class EarlyStopper:
 
 
 def checkplot():
-    net = CharNet_1(ClassifierArgs())
+    net = MFCCCharNet1BN(ClassifierArgs())
     net.load_state_dict(torch.load(r'C:\work\projects\asr_project\saved_models\CharNet1_MFC_epoch_99.pt'))
 
     training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128)
@@ -422,12 +423,11 @@ if __name__ == '__main__':
     # print(device)
 
 """
-noise after adding data - running it is left to do
-mfcc                    - 
-depth                   - 
+noise after adding data - Binyamin's? 
+mfcc                    - running first time
+depth                   -- Binyamin's?
 transformers
 augmevtation((?)
-come
 commete
 handle long input
 """

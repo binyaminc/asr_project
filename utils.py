@@ -165,3 +165,7 @@ def plot_CTC_output(p_matrix: torch.tensor):
             # plt.text(j, i, p_matrix[i,j], ha='center', va='top', color='gray')
     plt.axis('off')
     plt.imshow()
+
+
+def testfile(path: str):
+    pass
