@@ -42,7 +42,7 @@ class ClassifierArgs:
     save_model = True
     MAX_INPUT = 272
     lr = 0.001
-    seed = 13
+    seed = 17  # most results up till now are with seed 13
     data_preprocess = 'MFCC'
 
     @classmethod
@@ -136,9 +136,9 @@ def main():
     torch.cuda.manual_seed(ClassifierArgs.seed)
     for net in [Deeper2MFCCCharNet1BN(ClassifierArgs()),
                 DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
                 Deeper2MFCCCharNet1BN(ClassifierArgs())]:
         shutil.rmtree('./curr_models/')
         os.mkdir('./curr_models/')
@@ -442,18 +442,21 @@ def checkplot():
         break
 
 
-class LastModel:
+class Enssamble():
     def __init__(self):
         _ = ClassifierArgs()
-        self.nets = [Deeper2MFCCCharNet1BN(_), DeeperMFCCCharNet1BN(_)]
-        pathes = ['saved_models/DEPPER2_epoch8_wer-0.377374_cer-0.185808.pt',
-                  'saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt']
+        self.nets = [Deeper2MFCCCharNet1BN(_), Deeper2MFCCCharNet1BN(_), Deeper2MFCCCharNet1BN(_)]
+        pathes = ['saved_models/DEEPER2_epoch13_wer-0.316956_cer-0.138803.pt',
+                  'saved_models/DEEPER2_epoch19_wer-0.33384_cer-0.149472.pt',
+                  'saved_models/DEEPER2epoch9_wer-0.365702_cer-0.176067.pt']
+        self.weights = [0, 0, 1]
         for i in range(len(self.nets)):
-            self.nets[i] = self.nets[i].load_state_dict(torch.load(pathes[i]))
+            self.nets[i].load_state_dict(torch.load(pathes[i]))
 
     def forward(self, input):
-        prob_matrixs = torch.Tensor([net.forward(input) for net in self.nets])
-        joined_prob_matrix = torch.add(*prob_matrixs)
+        prob_matrixs = [net(input) * self.weights[i] for i, net in enumerate(self.nets)]
+        joined_prob_matrix = torch.add(prob_matrixs[0], prob_matrixs[1])
+        joined_prob_matrix = torch.add(joined_prob_matrix, prob_matrixs[2])
         return joined_prob_matrix
 
 
@@ -499,8 +502,44 @@ def my_checkplot(net=CharNet_1_BN(ClassifierArgs()), test_loader=None,
                     return
 
 
+def enssamble_outs():
+    ens = Enssamble()
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
+                                    ClassifierArgs.data_preprocess)
+    test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
+    counter = 0  # amount of samples to show
+
+    with torch.no_grad():
+        for specs, target_text, _, _ in test_loader:
+            # add dimension for the channels
+            specs = torch.unsqueeze(specs, 1)  # .to(device) - erased, makes trouble
+
+            # Forward pass
+            output = ens.forward(specs)
+            output = output.permute(1, 0, 2)  # convert output to (batch_size, time_slices, characters)
+            target_text = target_text.detach().numpy()
+
+            for (i, probs) in enumerate(output):
+                n_sentences = beam_search(probs, n=3)
+
+                best_sentence = n_sentences[-1]
+                best_sentence = ''.join([index2char[c] for c in best_sentence])
+                best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
+
+                curr_reference = ''.join([index2char[c] for c in target_text[i]])
+                curr_reference = curr_reference.replace('@', '')
+
+                print(f'{counter}:')
+                print(f'true text:      {curr_reference}')
+                print(f'predicted text: {best_sentence}')
+
+                counter += 1
+
+
 if __name__ == '__main__':
-    main()
+    # main()
+
+    enssamble_outs()
 
     # test()
     # checkplot()
