@@ -37,9 +37,17 @@ class ClassifierArgs:
     test_path: str = "./an4/test/an4/"
 
     kernels_per_layer = [16, 32, 64, 64, 64, 128, 256]
-    batch_size = 32  # small batch
+    batch_size = 8  # small batch
     epochs = 60
     save_model = True
+    MAX_INPUT = 272
+    lr = 0.001
+    seed = 13
+    data_preprocess = 'MFCC'
+
+    @classmethod
+    def load_best_model(cls):
+        pass
 
 
 def hash_label(label: str):
@@ -71,11 +79,6 @@ class CustomASRDataset(Dataset):
         return len(self.file_list)
 
     def __getitem__(self, idx):
-        # if self.is_training:
-        #     audio_filename = self.file_list[int(idx/2)]
-        # else:
-        #     audio_filename = self.file_list[idx]
-        
         audio_filename = self.file_list[idx]
 
         label_filename = os.path.splitext(audio_filename)[0] + ".txt"
@@ -108,110 +111,123 @@ def custom_collate_fn(batch):
 def main():
     # define the network
     # net = CharacterDetectionNet_1(ClassifierArgs())
-    # for net in CharacterDetectionNet_1_batch_normed(ClassifierArgs()),CharacterDetectionNet_1(ClassifierArgs()):
-    #     for data_state in (DATASET_STATES[0],DATASET_STATES[2]):
+
     print(f"device: {device}")
 
-    preprocess = 'MFCC'
+    preprocess = ClassifierArgs.data_preprocess
     # net = CharNet_1(ClassifierArgs())
-    net = DeeperMFCCCharNet1BN(ClassifierArgs())
+    # net = MFCCCharNet1BN(ClassifierArgs())
     # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, preprocess, is_training=True)
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128,
+                                        preprocess,
+                                        is_training=True)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
-    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128, preprocess)
+    validation_dataset = CustomASRDataset(ClassifierArgs.val_path + '\\wav', ClassifierArgs.val_path + '\\txt', 128,
+                                          preprocess)
     validation_loader = DataLoader(validation_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128, preprocess)
+    test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
+                                    preprocess)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
 
-    # Set up the training loop
-    # optimizer = optim.Adam(net.parameters(), lr=0.0005)
-    optimizer = optim.Adam(net.parameters(), lr=0.001)
+    torch.cuda.manual_seed(ClassifierArgs.seed)
+    for net in [Deeper2MFCCCharNet1BN(ClassifierArgs()),
+                DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs()),DeeperMFCCCharNet1BN(ClassifierArgs()),
+                Deeper2MFCCCharNet1BN(ClassifierArgs())]:
+        shutil.rmtree('./curr_models/')
+        os.mkdir('./curr_models/')
+        os.chmod('./curr_models/', 0o777)
+        # Set up the training loop
+        optimizer = optim.Adam(net.parameters(), lr=ClassifierArgs.lr)
 
-    train_ctc_losses, val_ctc_losses = [], []
-    train_wer_losses, val_wer_losses = [], []
-    train_cer_losses, val_cer_losses = [], []
+        train_ctc_losses, val_ctc_losses = [], []
+        train_wer_losses, val_wer_losses = [], []
+        train_cer_losses, val_cer_losses = [], []
 
-    early_stopper = EarlyStopper(patience=5, min_delta=0.01)
+        early_stopper = EarlyStopper(patience=5, min_delta=0.01)
 
-    print("data loaded. start training")
+        print("data loaded. start training")
 
-    best_wer, best_cer = 1.0, 1.0
+        best_wer, best_cer = 1.0, 1.0
 
-    net.to(device)
-    for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
-        train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss_func, net, optimizer, training_loader)
-        train_ctc_losses.append(train_ctc_loss)
-        train_wer_losses.append(train_wer_loss)
-        train_cer_losses.append(train_cer_loss)
+        net.to(device)
+        for epoch in tqdm(np.arange(ClassifierArgs.epochs)):
+            train_ctc_loss, train_wer_loss, train_cer_loss = train_one_epoch(ctc_loss_func, net, optimizer,
+                                                                             training_loader)
+            train_ctc_losses.append(train_ctc_loss)
+            train_wer_losses.append(train_wer_loss)
+            train_cer_losses.append(train_cer_loss)
 
-        val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss_func, net, validation_loader)
-        val_ctc_losses.append(val_ctc_loss)
-        val_wer_losses.append(val_wer_loss)
-        val_cer_losses.append(val_cer_loss)
+            #  as last param - sentences - is meaningless in this context
+            val_ctc_loss, val_wer_loss, val_cer_loss, _ = dataloader_score(ctc_loss_func, net, validation_loader)
+            val_ctc_losses.append(val_ctc_loss)
+            val_wer_losses.append(val_wer_loss)
+            val_cer_losses.append(val_cer_loss)
 
-        print(f"\nepoch {epoch}: " \
-            + f"TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}" \
-            + f", VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
+            print(f"\nepoch {epoch}: " \
+                  + f"TRAIN loss-wer-cer = {round(train_ctc_loss, 6)} {round(train_wer_loss, 6)} {round(train_cer_loss, 6)}" \
+                  + f", VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}")
 
-        if val_wer_loss < best_wer or val_cer_loss < best_cer:
-            torch.save(net.state_dict(), f'curr_models/epoch{epoch}_wer-{round(val_wer_loss, 6)}_cer-{round(val_cer_loss, 6)}.pt')
-            best_wer, best_cer = min(best_wer, val_wer_loss), min(best_cer, val_cer_loss)
-        
-        # if (early_stopper.early_stop(val_cer_loss)):
-        #         print("stop early")
-        #         break
+            if val_wer_loss < best_wer or val_cer_loss < best_cer:
+                torch.save(net.state_dict(),
+                           f'curr_models/epoch{epoch}_wer-{round(val_wer_loss, 6)}_cer-{round(val_cer_loss, 6)}.pt')
+                best_wer, best_cer = min(best_wer, val_wer_loss), min(best_cer, val_cer_loss)
 
-    print("finished training the network. finding best network...")
+            if (early_stopper.early_stop(val_cer_loss)):
+                print("stop early")
+                break
 
-    # load best model and save it
-    best_weights = ''
-    for file_name in os.listdir('./curr_models/'):
-        cer = float(file_name.split('-')[-1][:-3])
-        if cer == round(best_cer, 6):
-            best_weights = file_name
-            break
-    best_net_state = torch.load('./curr_models/' + best_weights)
-    net.load_state_dict(best_net_state)
-    torch.save(net.state_dict(), f'saved_models/{file_name}')
+        print("finished training the network. finding best network...")
 
-    shutil.rmtree('./curr_models/')
-    os.mkdir('./curr_models/')
+        # load best model and save it
+        best_weights = ''
+        for file_name in os.listdir('./curr_models/'):
+            cer = float(file_name.split('-')[-1][:-3])
+            if cer == round(best_cer, 6):
+                best_weights = file_name
+                break
+        best_net_state = torch.load('curr_models/' + best_weights)
+        net.load_state_dict(best_net_state)
+        torch.save(net.state_dict(), f'saved_models/{file_name}')
 
-    print(f"best network: {best_weights}")
+        print(f"best network: {best_weights}")
 
-    # evaluate performance of best model
-    print("evaluate...")
-    val_ctc_loss, val_wer_loss, val_cer_loss = dataloader_score(ctc_loss_func, net, validation_loader)
-    test_ctc_loss, test_wer_loss, test_cer_loss = dataloader_score(ctc_loss_func, net, test_loader)
-    print(f"VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}" + \
-          f" TEST loss-wer-cer = {round(test_ctc_loss, 6)} {round(test_wer_loss, 6)} {round(test_cer_loss, 6)}")
+        # evaluate performance of best model
+        print("evaluate...")
+        val_ctc_loss, val_wer_loss, val_cer_loss, _ = dataloader_score(ctc_loss_func, net, validation_loader)
+        test_ctc_loss, test_wer_loss, test_cer_loss, results = dataloader_score(ctc_loss_func, net, test_loader, True)
+        print(f"VAL loss-wer-cer = {round(val_ctc_loss, 6)} {round(val_wer_loss, 6)} {round(val_cer_loss, 6)}" + \
+              f" TEST loss-wer-cer = {round(test_ctc_loss, 6)} {round(test_wer_loss, 6)} {round(test_cer_loss, 6)}")
 
-    # aligning w/cer to be maximum 1
-    train_wer_losses = [w if w <= 1 else 1 for w in train_wer_losses]
-    train_cer_losses = [c if c <= 1 else 1 for c in train_cer_losses]
-    val_wer_losses = [w if w <= 1 else 1 for w in val_wer_losses]
-    val_cer_losses = [c if c <= 1 else 1 for c in val_cer_losses]
+        # aligning w/cer to be maximum 1
+        train_wer_losses = [w if w <= 1 else 1 for w in train_wer_losses]
+        train_cer_losses = [c if c <= 1 else 1 for c in train_cer_losses]
+        val_wer_losses = [w if w <= 1 else 1 for w in val_wer_losses]
+        val_cer_losses = [c if c <= 1 else 1 for c in val_cer_losses]
 
-    # plot results
-    plot_name = f'ctc loss'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_ctc_losses, val_ctc_losses],
-            data_labels=['training loss', 'val loss'])
+        # plot results
+        plot_name = f'ctc loss'
+        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+                data=[train_ctc_losses, val_ctc_losses],
+                data_labels=['training loss', 'val loss'])
 
-    plot_name = f'wer loss'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_wer_losses, val_wer_losses],
-            data_labels=['training loss', 'val loss'])
+        plot_name = f'wer loss'
+        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+                data=[train_wer_losses, val_wer_losses],
+                data_labels=['training loss', 'val loss'])
 
-    plot_name = 'cer loss'
-    plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
-            data=[train_cer_losses, val_cer_losses])
+        plot_name = 'cer loss'
+        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+                data=[train_cer_losses, val_cer_losses])
 
-    print('ended')
+        print(f'batch size:{ClassifierArgs.batch_size} lr:{ClassifierArgs.lr} model:{net.name}\nended')
+
 
 def plotter(plot_name, x_axis_label, y_axis_label, data, data_labels=None):
     # plt losses
@@ -251,11 +267,13 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        if is_first_batch:
-            wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
-            is_first_batch = False
-        sum_wer_loss += wer_loss
-        sum_cer_loss += cer_loss
+        # if is_first_batch:
+        # wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
+        # is_first_batch = False
+        # sum_wer_loss += wer_loss
+        # sum_cer_loss += cer_loss
+        sum_cer_loss = 0
+        sum_wer_loss = 0
 
         # Backward pass and optimization
         ctc_loss.backward()
@@ -267,9 +285,10 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
     return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
 
 
-def dataloader_score(loss_function, net, data_loader):
+def dataloader_score(loss_function, net, data_loader, printer_results=False):
     sum_ctc_loss, sum_wer_loss, sum_cer_loss = 0, 0, 0
     i = 0
+    match = []
 
     with torch.no_grad():
         for specs, target_text, spectrogram_lengths, target_lengths in data_loader:
@@ -286,14 +305,18 @@ def dataloader_score(loss_function, net, data_loader):
             ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
             sum_ctc_loss += ctc_loss.item()
             # compute er loss
-            wer_loss, cer_loss = get_er_loss(output, target_text)
+            # if printer_results: print(output + " vs " + target_text)
+            wer_loss, cer_loss, sentences = get_er_loss(output, target_text)
+            if printer_results:
+                match.append((sentences, target_text))
             sum_wer_loss += wer_loss
             sum_cer_loss += cer_loss
             i += 1
 
-    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i
+    return sum_ctc_loss / i, sum_wer_loss / i, sum_cer_loss / i, match
 
 
+#
 def get_er_loss(output, target_text):
     # convert output to (batch_size, time_slices, characters)
     output = output.permute(1, 0, 2)
@@ -302,15 +325,19 @@ def get_er_loss(output, target_text):
 
     target_text = target_text.detach().numpy()
     k = 0
+    results = []
+
     for (i, probs) in enumerate(output):
         n_sentences = beam_search(probs, n=3)
 
         best_sentence = n_sentences[-1]
         best_sentence = ''.join([index2char[c] for c in best_sentence])
-        best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
+        best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '').strip()
 
         curr_reference = ''.join([index2char[c] for c in target_text[i]])
-        curr_reference = curr_reference.replace('@', '')
+        curr_reference = curr_reference.replace('@', '').strip()
+
+        results.append(best_sentence)
 
         # calc wer and cer loss
         wer_loss = wer(reference=curr_reference, hypothesis=best_sentence)
@@ -323,7 +350,7 @@ def get_er_loss(output, target_text):
         k += 1
         i = k
 
-    return wer_losses_sum / (k), cer_losses_sum / (k)
+    return wer_losses_sum / (k), cer_losses_sum / (k), results
 
 
 def beam_search(probs, n=3):
@@ -415,8 +442,67 @@ def checkplot():
         break
 
 
+class LastModel:
+    def __init__(self):
+        _ = ClassifierArgs()
+        self.nets = [Deeper2MFCCCharNet1BN(_), DeeperMFCCCharNet1BN(_)]
+        pathes = ['saved_models/DEPPER2_epoch8_wer-0.377374_cer-0.185808.pt',
+                  'saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt']
+        for i in range(len(self.nets)):
+            self.nets[i] = self.nets[i].load_state_dict(torch.load(pathes[i]))
+
+    def forward(self, input):
+        prob_matrixs = torch.Tensor([net.forward(input) for net in self.nets])
+        joined_prob_matrix = torch.add(*prob_matrixs)
+        return joined_prob_matrix
+
+
+def my_checkplot(net=CharNet_1_BN(ClassifierArgs()), test_loader=None,
+                 weights_path=r'./saved_models/part2_BN_wer-0.506568_cer-0.255978.pt', sample_size=15):
+    net.load_state_dict(torch.load(weights_path))
+
+    preprocess = ClassifierArgs.data_preprocess
+    if test_loader is None:
+        test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
+                                        preprocess)
+        test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
+
+    counter = 0  # amount of samples to show
+
+    with torch.no_grad():
+        for specs, target_text, _, _ in test_loader:
+            # add dimension for the channels
+            specs = torch.unsqueeze(specs, 1)  # .to(device) - erased, makes trouble
+
+            # Forward pass
+            output = net(specs)
+            output = output.permute(1, 0, 2)  # convert output to (batch_size, time_slices, characters)
+
+            target_text = target_text.detach().numpy()
+
+            for (i, probs) in enumerate(output):
+                n_sentences = beam_search(probs, n=3)
+
+                best_sentence = n_sentences[-1]
+                best_sentence = ''.join([index2char[c] for c in best_sentence])
+                best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
+
+                curr_reference = ''.join([index2char[c] for c in target_text[i]])
+                curr_reference = curr_reference.replace('@', '')
+
+                print(f'{counter}:')
+                print(f'true text:      {curr_reference}')
+                print(f'predicted text: {best_sentence}')
+
+                counter += 1
+                if counter >= sample_size:
+                    return
+
+
 if __name__ == '__main__':
     main()
+
+    # test()
     # checkplot()
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

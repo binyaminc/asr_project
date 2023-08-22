@@ -8,6 +8,10 @@ from typing import List
 import os
 from torch.utils.data import Dataset
 import string
+import networks
+
+
+# from start_file import ClassifierArgs
 
 
 def create_index(additional_letters: list):
@@ -165,7 +169,22 @@ def plot_CTC_output(p_matrix: torch.tensor):
             # plt.text(j, i, p_matrix[i,j], ha='center', va='top', color='gray')
     plt.axis('off')
     plt.imshow()
-
-
-def testfile(path: str):
     pass
+    """load file as asked
+        split to max length
+        run model on each part
+        join the edges together and if same letter delete it
+        return the answer"""
+
+
+class FinalModel():
+    def __init__(self, paths=None):
+        if paths is None:
+            paths = ['saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt', ]
+        net_state = torch.load('saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt')
+        net = networks.DeeperMFCCCharNet1BN(ClassifierArgs())
+        net.load_state_dict(net_state)
+
+
+
+

@@ -11,7 +11,6 @@ import numpy as np
 
 
 def main():
-    
     do_want = input("do you want to create some new data? (y/n)")
     if do_want != 'y':
         print("exit creating")
@@ -19,7 +18,7 @@ def main():
 
     create_merged_data()
     # create_noisy_data()
-    
+
 
 def create_noisy_data(SNR=20):
     # List all files in the folder
@@ -27,10 +26,10 @@ def create_noisy_data(SNR=20):
 
     for wav_file in wav_files:
         data, sr = librosa.load(wav_path + wav_file, mono=True)
-        
+
         # create noisy data
         max_amplitude = max(np.max(data), abs(np.min(data)))
-        noise = np.random.normal(0, max_amplitude/SNR, data.shape).astype(np.float32)
+        noise = np.random.normal(0, max_amplitude / SNR, data.shape).astype(np.float32)
         noisy_data = data + noise
 
         # save noisy data
@@ -65,7 +64,7 @@ def create_merged_data():
         # Check if the combined num_frames is smaller than the maximum size
         if num_frames1 + num_frames2 < longest_num_frames:
             i += 1
-            #print(f"combining \"{file1_path}\" and \"{file2_path}\"")
+            # print(f"combining \"{file1_path}\" and \"{file2_path}\"")
 
             # Create a new combined WAV file
             output_path1 = file1_path[:-4] + '_' + file2_path
@@ -101,8 +100,8 @@ def create_merged_data():
             wav_file1.close()
             wav_file2.close()
 
-            if i%100 == 0:
-                print (i)
+            if i % 100 == 0:
+                print(i)
 
 
 def find_longest_file():
