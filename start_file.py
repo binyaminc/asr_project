@@ -42,7 +42,7 @@ class ClassifierArgs:
     save_model = True
     MAX_INPUT = 272
     lr = 0.001
-    seed = 17  # most results up till now are with seed 13
+    seed = 13  # most results up till now are with seed 13
     data_preprocess = 'MFCC'
 
     @classmethod
@@ -108,20 +108,14 @@ def custom_collate_fn(batch):
     return padded_spectrogram_frames, labels
 
 
-def main():
-    # define the network
-    # net = CharacterDetectionNet_1(ClassifierArgs())
-
+def trainNets():
     print(f"device: {device}")
 
     preprocess = ClassifierArgs.data_preprocess
-    # net = CharNet_1(ClassifierArgs())
-    # net = MFCCCharNet1BN(ClassifierArgs())
-    # Define the CTC loss
     ctc_loss_func = nn.CTCLoss()
 
-    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128,
-                                        preprocess,
+    # load data
+    training_dataset = CustomASRDataset(ClassifierArgs.training_path + '\\wav', train_path + '\\txt', 128, preprocess,
                                         is_training=True)
     training_loader = DataLoader(training_dataset, batch_size=ClassifierArgs.batch_size, shuffle=True)
 
@@ -132,28 +126,28 @@ def main():
     test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
                                     preprocess)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
-
+    # init nets with constant seed
+    _ = ClassifierArgs()
     torch.cuda.manual_seed(ClassifierArgs.seed)
-    for net in [Deeper2MFCCCharNet1BN(ClassifierArgs()),
-                DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs()), DeeperMFCCCharNet1BN(ClassifierArgs()),
-                Deeper2MFCCCharNet1BN(ClassifierArgs())]:
+    for net in [DeeperMFCCCharNet1BN(_),
+                Deeper2MFCCCharNet1BN(_)]:
+        # later on saves all models on current net in a folder, later on picks the best. here delete, make the folder.
         shutil.rmtree('./curr_models/')
         os.mkdir('./curr_models/')
         os.chmod('./curr_models/', 0o777)
         # Set up the training loop
         optimizer = optim.Adam(net.parameters(), lr=ClassifierArgs.lr)
 
+        # init losses for plots
         train_ctc_losses, val_ctc_losses = [], []
         train_wer_losses, val_wer_losses = [], []
         train_cer_losses, val_cer_losses = [], []
 
+        # init Early stopper
         early_stopper = EarlyStopper(patience=5, min_delta=0.01)
 
         print("data loaded. start training")
-
+        # bound wer,cer plot limits, as greater then 1 makes differentiating by eye between lower values harder
         best_wer, best_cer = 1.0, 1.0
 
         net.to(device)
@@ -213,17 +207,17 @@ def main():
 
         # plot results
         plot_name = f'ctc loss'
-        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+        plotter(plot_name=net.name + " " + plot_name, x_axis_label='epochs', y_axis_label='loss',
                 data=[train_ctc_losses, val_ctc_losses],
                 data_labels=['training loss', 'val loss'])
 
         plot_name = f'wer loss'
-        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+        plotter(plot_name=net.name + " " + plot_name, x_axis_label='epochs', y_axis_label='loss',
                 data=[train_wer_losses, val_wer_losses],
                 data_labels=['training loss', 'val loss'])
 
         plot_name = 'cer loss'
-        plotter(plot_name=plot_name, x_axis_label='epochs', y_axis_label='loss',
+        plotter(plot_name=net.name + " " + plot_name, x_axis_label='epochs', y_axis_label='loss',
                 data=[train_cer_losses, val_cer_losses])
 
         print(f'batch size:{ClassifierArgs.batch_size} lr:{ClassifierArgs.lr} model:{net.name}\nended')
@@ -267,13 +261,11 @@ def train_one_epoch(loss_function, net, optimizer, training_data_loader):
         ctc_loss = loss_function(output, target_text, spectrogram_lengths, target_lengths)
         sum_ctc_loss += ctc_loss.item()
 
-        # if is_first_batch:
-        # wer_loss, cer_loss = wer_loss, cer_loss = get_er_loss(output, target_text)
-        # is_first_batch = False
-        # sum_wer_loss += wer_loss
-        # sum_cer_loss += cer_loss
-        sum_cer_loss = 0
-        sum_wer_loss = 0
+        if is_first_batch:
+            wer_loss, cer_loss, _ = get_er_loss(output, target_text)
+            is_first_batch = False
+        sum_wer_loss += wer_loss  # It may NOT.
+        sum_cer_loss += cer_loss  # U shell NOT.
 
         # Backward pass and optimization
         ctc_loss.backward()
@@ -442,68 +434,28 @@ def checkplot():
         break
 
 
-class Enssamble():
+class Ensemble:
+    """ a trial at ensemble the models """
+
     def __init__(self):
         _ = ClassifierArgs()
         self.nets = [Deeper2MFCCCharNet1BN(_), Deeper2MFCCCharNet1BN(_), Deeper2MFCCCharNet1BN(_)]
         pathes = ['saved_models/DEEPER2_epoch13_wer-0.316956_cer-0.138803.pt',
                   'saved_models/DEEPER2_epoch19_wer-0.33384_cer-0.149472.pt',
                   'saved_models/DEEPER2epoch9_wer-0.365702_cer-0.176067.pt']
-        self.weights = [0, 0, 1]
+        self.weights = [1, 1, 1]
         for i in range(len(self.nets)):
             self.nets[i].load_state_dict(torch.load(pathes[i]))
 
     def forward(self, input):
-        prob_matrixs = [net(input) * self.weights[i] for i, net in enumerate(self.nets)]
+        prob_matrixs = [net(input) * self.weights[i] / 3 for i, net in enumerate(self.nets)]
         joined_prob_matrix = torch.add(prob_matrixs[0], prob_matrixs[1])
         joined_prob_matrix = torch.add(joined_prob_matrix, prob_matrixs[2])
         return joined_prob_matrix
 
 
-def my_checkplot(net=CharNet_1_BN(ClassifierArgs()), test_loader=None,
-                 weights_path=r'./saved_models/part2_BN_wer-0.506568_cer-0.255978.pt', sample_size=15):
-    net.load_state_dict(torch.load(weights_path))
-
-    preprocess = ClassifierArgs.data_preprocess
-    if test_loader is None:
-        test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
-                                        preprocess)
-        test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
-
-    counter = 0  # amount of samples to show
-
-    with torch.no_grad():
-        for specs, target_text, _, _ in test_loader:
-            # add dimension for the channels
-            specs = torch.unsqueeze(specs, 1)  # .to(device) - erased, makes trouble
-
-            # Forward pass
-            output = net(specs)
-            output = output.permute(1, 0, 2)  # convert output to (batch_size, time_slices, characters)
-
-            target_text = target_text.detach().numpy()
-
-            for (i, probs) in enumerate(output):
-                n_sentences = beam_search(probs, n=3)
-
-                best_sentence = n_sentences[-1]
-                best_sentence = ''.join([index2char[c] for c in best_sentence])
-                best_sentence = best_sentence.replace('@', '').replace('<BLANK>', '')
-
-                curr_reference = ''.join([index2char[c] for c in target_text[i]])
-                curr_reference = curr_reference.replace('@', '')
-
-                print(f'{counter}:')
-                print(f'true text:      {curr_reference}')
-                print(f'predicted text: {best_sentence}')
-
-                counter += 1
-                if counter >= sample_size:
-                    return
-
-
 def enssamble_outs():
-    ens = Enssamble()
+    ens = Ensemble()
     test_dataset = CustomASRDataset(ClassifierArgs.test_path + '\\wav', ClassifierArgs.test_path + '\\txt', 128,
                                     ClassifierArgs.data_preprocess)
     test_loader = DataLoader(test_dataset, batch_size=ClassifierArgs.batch_size, shuffle=False)
@@ -529,7 +481,7 @@ def enssamble_outs():
                 curr_reference = ''.join([index2char[c] for c in target_text[i]])
                 curr_reference = curr_reference.replace('@', '')
 
-                print(f'{counter}:')
+                # print(f'{counter}:')
                 print(f'true text:      {curr_reference}')
                 print(f'predicted text: {best_sentence}')
 
@@ -537,22 +489,7 @@ def enssamble_outs():
 
 
 if __name__ == '__main__':
-    # main()
-
+    # train the network mentioned in the function
+    # trainNets()
+    # prints predicted output vs real outputs, uses ensemble but can print with 1 how weight vector the results of a single model
     enssamble_outs()
-
-    # test()
-    # checkplot()
-
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # print(device)
-
-"""
-noise after adding data - Binyamin's? 
-mfcc                    - running first time
-depth                   -- Binyamin's?
-transformers
-augmevtation((?)
-commete
-handle long input
-"""

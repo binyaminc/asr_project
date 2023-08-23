@@ -1,17 +1,10 @@
 import librosa
 import librosa.display
 from librosa import feature
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from typing import List
 import os
-from torch.utils.data import Dataset
 import string
-import networks
-
-
-# from start_file import ClassifierArgs
 
 
 def create_index(additional_letters: list):
@@ -144,47 +137,3 @@ class EarlyStopper:
             if self.counter >= self.patience:
                 return True
         return False
-
-
-# def k_beam(batch: int, probability_tensor: tensor, index: dict):
-#     """
-#     batch: the size of the
-#     @param:probability_tensor - Time steps, probability_per_index.
-#     @description:
-#     """
-#     epsilon_end_dict, char_end_dict = {}, {}
-#     p = torch.argmax(probability_tensor[0])
-#
-#     # init starting values:
-#     pass
-def plot_CTC_output(p_matrix: torch.tensor):
-    # of save (T, len(probability))
-    p_matrix = np.array(p_matrix)
-    itos, _ = create_index([])
-    plt.figure(figsize=(4, 24))
-    plt.imshow(p_matrix, cmap='Blues')
-    for i in range(p_matrix.shape[0]):
-        for j in range(p_matrix.shape[1]):
-            plt.text(i, j, itos[j], ha='center', va='bottom', color='gray')
-            # plt.text(j, i, p_matrix[i,j], ha='center', va='top', color='gray')
-    plt.axis('off')
-    plt.imshow()
-    pass
-    """load file as asked
-        split to max length
-        run model on each part
-        join the edges together and if same letter delete it
-        return the answer"""
-
-
-class FinalModel():
-    def __init__(self, paths=None):
-        if paths is None:
-            paths = ['saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt', ]
-        net_state = torch.load('saved_models/DEEPERMFCC_epoch17_wer-0.368134_cer-0.183947.pt')
-        net = networks.DeeperMFCCCharNet1BN(ClassifierArgs())
-        net.load_state_dict(net_state)
-
-
-
-

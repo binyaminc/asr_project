@@ -45,10 +45,10 @@ class CharNet1(nn.Module):
         x = torch.nn.functional.log_softmax(x, dim=2)
         return x
 
-
 # CNN version with batch normalization
 
 class CharNet_1_BN(nn.Module):
+    """CharNet + batch norm"""
     def __init__(self, classifierArgs):
         super().__init__()
         self.name = "CharNet1_BN"
