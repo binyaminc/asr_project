@@ -2,7 +2,10 @@
  
 The project implemetns an automatic speech recognition system. We explore different NN architectures and data preprocessing.
 
-## Preprocessing 
+## Data & Preprocessing 
+The dataset we use is [AN4 dataset](https://drive.google.com/file/d/1MiPqJDm6gX_ayXZJ2LHeUbG0UNZfNagF/view?usp=sharing) from Carnegie Mellon University. It consists of people spelling out addresses, names, etc.
+
+
 The input data is in .wav files. We convert the wav files into spectrograms (2D matrices of time-slices and frequencies). After that, we add a padding to the spectrograms, so that every input will have the same size. 
 
 In order to create more data, in `add_data.py` we use 2 methods: add random noise to the wav files, and concatenating pairs of wav files to create new files. 
@@ -14,4 +17,4 @@ We started with 7 convolution layers, a linear layer and a log_softmax layer. We
 
 We saved the trained networks with best results in `saved models` folder, so that we can load them later for prediction.
 ## Prediction
-After we got the output matrix of char probabilities, we used beam search to find the approximation of the best "path" in the matrix, the best sequence of characters (including the epsilon char, which disappears in the final result).
+After we got the output matrix of char probabilities, we used beam search to find the approximation of the best "path" in the matrix (the best sequence of characters). Then we erased epsilon characters to get a final result.
