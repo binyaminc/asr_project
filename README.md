@@ -12,5 +12,6 @@ In `networks.py` we explored different CNN networks (in the future we want to ex
 
 We started with 7 convolution layers, a linear layer and a log_softmax layer. We added Batch normalization, some more convolution layers, and then some more:). In addition, we checked diffenent additions of data in the preprocessing. 
 
+We saved the trained networks with best results in `saved models` folder, so that we can load them later for prediction.
 ## Prediction
 After we got the output matrix of char probabilities, we used beam search to find the approximation of the best "path" in the matrix, the best sequence of characters (including the epsilon char, which disappears in the final result).
